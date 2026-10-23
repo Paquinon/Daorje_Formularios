@@ -27,6 +27,16 @@ textarea{min-height:96px}
 .chk input{width:28px;height:28px;min-height:0}
 .hist{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;font-size:14px;color:var(--mute)}
 .hist button{background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:6px 12px;font-size:14px;color:var(--ink);min-height:36px}
+.seg{display:flex;gap:8px}
+.seg button{flex:1;min-height:56px;font-size:18px;font-weight:600;border:2px solid var(--line);background:var(--card);color:var(--ink);border-radius:6px}
+.seg button.on{background:var(--acc);border-color:var(--acc);color:var(--acc-ink)}
+.seg button.on.bad{background:#C62828;border-color:#C62828;color:#fff}
+input[readonly]{background:var(--bg);color:var(--mute)}
+input.out{border-color:#C62828;background:#FDE7E7;color:#7A0000;font-weight:700}
+.range{font-size:14px;color:var(--mute);margin-top:6px}
+.range.out{color:#C62828;font-weight:700}
+.range.out::after{content:" · FUERA DE RANGO"}
+.hist button.badchip{border-color:#C62828;color:#C62828}
 .primary{width:100%;background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:16px;font-size:18px;font-weight:700;min-height:56px}
 .bar{position:fixed;left:0;right:0;bottom:0;padding:10px 16px;background:var(--card);border-top:1px solid var(--line);font-size:15px;display:flex;justify-content:space-between;gap:10px;align-items:center}
 .bar button{background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:8px 14px;min-height:40px;font-weight:600}
@@ -48,44 +58,34 @@ const CONFIG = {
   HISTORY_N: 5      // cuántas entregas anteriores mostrar
 };
 
-// Formularios: "history:true" muestra lo respondido en entregas anteriores.
+// TIPOS DE CAMPO:
+//  datetime : fecha y hora automáticas (no se editan)
+//  choice   : botones. "bad" = opciones que se marcan en rojo (opcional)
+//  number   : valor con rango normal min/max; si se sale, se pone en rojo
+//  text, textarea, select, check, date
+// "history:true" muestra lo respondido en entregas anteriores.
+const BASE = [
+  {id:"fecha", label:"Fecha y hora", type:"datetime"},
+  {id:"grupo", label:"Estado del grupo", type:"choice", options:["Servicio","Paro"]},
+  {id:"general", label:"Estado general", type:"choice", options:["Correcto","Incorrecto"], bad:["Incorrecto"]},
+  {id:"temp_coj", label:"Temperatura cojinete", unit:"°C", type:"number", min:20, max:65, history:true},
+  {id:"nivel_aceite", label:"Nivel de aceite", unit:"%", type:"number", min:40, max:80, history:true},
+  {id:"presion", label:"Presión de agua", unit:"bar", type:"number", min:2, max:6, history:true},
+  {id:"obs", label:"Observaciones", type:"textarea"}
+];
 const FORMS = {
-  revision_semanal: { title: "Revisión semanal", fields: [
-    {id:"fecha", label:"Fecha", type:"date"},
-    {id:"operario", label:"Operario", type:"text", history:true},
-    {id:"nivel", label:"Nivel de embalse (m)", type:"number", history:true},
-    {id:"caudal", label:"Caudal turbinado (m³/s)", type:"number", history:true},
-    {id:"estado", label:"Estado general", type:"select", options:["Correcto","Con incidencias"]},
-    {id:"obs", label:"Observaciones", type:"textarea"}]},
-  grupo_turbina: { title: "Grupo turbina-alternador", fields: [
-    {id:"fecha", label:"Fecha", type:"date"},
-    {id:"operario", label:"Operario", type:"text", history:true},
-    {id:"horas", label:"Horas de funcionamiento", type:"number", history:true},
-    {id:"temp_coj", label:"Temperatura cojinetes (°C)", type:"number", history:true},
-    {id:"vibra", label:"Vibraciones normales", type:"check"},
-    {id:"engrase", label:"Engrase realizado", type:"check"},
-    {id:"obs", label:"Observaciones", type:"textarea"}]},
-  obra_civil: { title: "Presa y obra civil", fields: [
-    {id:"fecha", label:"Fecha", type:"date"},
-    {id:"operario", label:"Operario", type:"text", history:true},
-    {id:"filtraciones", label:"Filtraciones", type:"select", options:["Ninguna","Leves","Importantes"], history:true},
-    {id:"rejillas", label:"Rejillas limpias", type:"check"},
-    {id:"obs", label:"Observaciones", type:"textarea"}]},
-  electrico: { title: "Transformador y cuadros eléctricos", fields: [
-    {id:"fecha", label:"Fecha", type:"date"},
-    {id:"operario", label:"Operario", type:"text", history:true},
-    {id:"temp_trafo", label:"Temperatura transformador (°C)", type:"number", history:true},
-    {id:"nivel_aceite", label:"Nivel de aceite", type:"select", options:["Correcto","Bajo"], history:true},
-    {id:"obs", label:"Observaciones", type:"textarea"}]}
+  sivi_a: { title: "SIVI A", fields: BASE },
+  sivi_b: { title: "SIVI B", fields: BASE },
+  sivi_c: { title: "SIVI C", fields: BASE }
 };
 
-// Centrales: cada una indica qué formularios tiene.
+// Centrales: cada una indica qué formularios tiene (por su identificador de FORMS).
 const PLANTS = [
-  {id:"central_1", name:"CH SALLENT", forms:["SIVI A","SIVI B","SIVI C"]},
-  {id:"central_2", name:"CH BAÑOS", forms:["SIVI A","SIVI B","SIVI C"]},
-  {id:"central_3", name:"CH LA SARRA", forms:["SIVI A","SIVI B","SIVI C"]},
-  {id:"central_4", name:"CH BIESCAS I", forms:["SIVI A","SIVI B","SIVI C"]},
-  {id:"central_5", name:"CH SESUE", forms:["SIVI A","SIVI B","SIVI C"]},
+  {id:"central_1", name:"CH SALLENT",   forms:["sivi_a","sivi_b","sivi_c"]},
+  {id:"central_2", name:"CH BAÑOS",     forms:["sivi_a","sivi_b","sivi_c"]},
+  {id:"central_3", name:"CH LA SARRA",  forms:["sivi_a","sivi_b","sivi_c"]},
+  {id:"central_4", name:"CH BIESCAS I", forms:["sivi_a","sivi_b","sivi_c"]},
+  {id:"central_5", name:"CH SESUE",     forms:["sivi_a","sivi_b","sivi_c"]}
 ];
 /* ====================================================== */
 
@@ -115,30 +115,58 @@ function render(){
 
 function histOf(plant, form){ return load("hist", []).filter(h => h.plant===plant && h.form===form).sort((a,b)=>b.ts-a.ts).slice(0, CONFIG.HISTORY_N); }
 
+const nowStr = () => { const d = new Date(), p = n => String(n).padStart(2,"0"); return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
+const outOf = (fl, val) => {
+  if (fl.type !== "number" || val === "" || val === undefined) return false;
+  const n = parseFloat(String(val).replace(",", "."));
+  if (isNaN(n)) return true;
+  return (fl.min !== undefined && n < fl.min) || (fl.max !== undefined && n > fl.max);
+};
+const isBad = (fl, val) => fl.type === "choice" ? (fl.bad || []).includes(val) : outOf(fl, val);
+
 function renderForm(){
   const p = PLANTS.find(x => x.id === view.plant), f = FORMS[view.form];
   $("#title").textContent = p.name + " · " + f.title;
   const dk = "draft:"+p.id+":"+view.form, draft = load(dk, {}), hist = histOf(p.id, view.form);
   let h = "";
   f.fields.forEach(fl => {
-    const v = draft[fl.id] ?? (fl.type==="date" ? new Date().toISOString().slice(0,10) : "");
-    let input;
-    if (fl.type==="textarea") input = `<textarea id="f_${fl.id}">${esc(v)}</textarea>`;
+    const v = draft[fl.id] ?? "";
+    const unit = fl.unit ? ` (${esc(fl.unit)})` : "";
+    let input, hint = "";
+    if (fl.type==="datetime") input = `<input id="f_${fl.id}" readonly value="${esc(v || nowStr())}">`;
+    else if (fl.type==="choice") input = `<div class="seg" id="f_${fl.id}" data-v="${esc(v)}">${fl.options.map(o=>`<button type="button" data-o="${esc(o)}" class="${o===v?"on":""} ${o===v&&(fl.bad||[]).includes(o)?"bad":""}">${esc(o)}</button>`).join("")}</div>`;
+    else if (fl.type==="check") { h += `<div class="field"><label class="chk"><input type="checkbox" id="f_${fl.id}" ${v===true?"checked":""}>${esc(fl.label)}</label></div>`; return; }
+    else if (fl.type==="textarea") input = `<textarea id="f_${fl.id}">${esc(v)}</textarea>`;
     else if (fl.type==="select") input = `<select id="f_${fl.id}"><option value="">Elegir…</option>${fl.options.map(o=>`<option ${o===v?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
-    else if (fl.type==="check") { h += `<div class="field"><label class="chk"><input type="checkbox" id="f_${fl.id}" ${v===true||v==="Sí"?"checked":""}>${esc(fl.label)}</label></div>`; return; }
     else input = `<input id="f_${fl.id}" type="${fl.type==="number"?"text":fl.type}" ${fl.type==="number"?'inputmode="decimal"':""} value="${esc(v)}">`;
+    if (fl.type==="number" && (fl.min!==undefined || fl.max!==undefined)) hint = `<div class="range" id="r_${fl.id}">Normal: ${fl.min ?? "…"} a ${fl.max ?? "…"} ${esc(fl.unit||"")}</div>`;
     let hs = "";
     if (fl.history){
       const vals = hist.map(e => e.data[fl.id]).filter(x => x !== undefined && x !== "");
-      if (vals.length) hs = `<div class="hist"><span>Anteriores:</span>${vals.map(x=>`<button type="button" data-fill="${fl.id}" data-v="${esc(x)}">${esc(x)}</button>`).join("")}</div>`;
+      if (vals.length) hs = `<div class="hist"><span>Anteriores:</span>${vals.map(x=>`<button type="button" data-fill="${fl.id}" data-v="${esc(x)}" class="${outOf(fl,x)?"badchip":""}">${esc(x)}</button>`).join("")}</div>`;
     }
-    h += `<div class="field"><label for="f_${fl.id}">${esc(fl.label)}</label>${input}${hs}</div>`;
+    h += `<div class="field"><label for="f_${fl.id}">${esc(fl.label)}${unit}</label>${input}${hint}${hs}</div>`;
   });
   h += `<button class="primary" id="send">Guardar y enviar PDF</button>`;
   $("#app").innerHTML = h;
-  const read = () => { const d = {}; f.fields.forEach(fl => { const el = $("#f_"+fl.id); d[fl.id] = fl.type==="check" ? el.checked : el.value.trim(); }); return d; };
+
+  const read = () => { const d = {}; f.fields.forEach(fl => { const el = $("#f_"+fl.id); d[fl.id] = fl.type==="check" ? el.checked : fl.type==="choice" ? el.dataset.v : el.value.trim(); }); return d; };
+  const mark = fl => { // pinta en rojo los números fuera de rango
+    const el = $("#f_"+fl.id), r = $("#r_"+fl.id), bad = outOf(fl, el.value.trim());
+    el.classList.toggle("out", bad); if (r) { r.classList.toggle("out", bad); }
+  };
+  f.fields.filter(fl => fl.type==="number").forEach(fl => { mark(fl); $("#f_"+fl.id).addEventListener("input", () => mark(fl)); });
   $("#app").querySelectorAll("input,select,textarea").forEach(el => el.addEventListener("input", () => save(dk, read())));
-  $("#app").querySelectorAll("[data-fill]").forEach(b => b.onclick = () => { $("#f_"+b.dataset.fill).value = b.dataset.v; save(dk, read()); });
+  f.fields.filter(fl => fl.type==="choice").forEach(fl => {
+    const box = $("#f_"+fl.id);
+    box.querySelectorAll("button").forEach(b => b.onclick = () => {
+      box.dataset.v = b.dataset.o;
+      box.querySelectorAll("button").forEach(x => { const on = x === b; x.classList.toggle("on", on); x.classList.toggle("bad", on && (fl.bad||[]).includes(x.dataset.o)); });
+      save(dk, read());
+    });
+  });
+  $("#app").querySelectorAll("[data-fill]").forEach(b => b.onclick = () => { const el = $("#f_"+b.dataset.fill); el.value = b.dataset.v; el.dispatchEvent(new Event("input")); });
+  save(dk, read());
   $("#send").onclick = () => submit(p, view.form, f, read(), dk);
 }
 
@@ -151,11 +179,17 @@ function makePdf(p, f, data, when){
   doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.text("Enviado: " + when.toLocaleString("es-ES"), L, y); y += 4;
   doc.line(L, y, L+W, y); y += 8;
   f.fields.forEach(fl => {
-    const val = fl.type==="check" ? (data[fl.id] ? "Sí" : "No") : (data[fl.id] || "—");
+    const raw = data[fl.id], bad = isBad(fl, raw);
+    let val = fl.type==="check" ? (raw ? "Sí" : "No") : (raw || "—");
+    if (fl.type==="number" && raw) val += (fl.unit ? " " + fl.unit : "");
+    if (bad && fl.type==="number") val += "   (FUERA DE RANGO " + (fl.min ?? "…") + " - " + (fl.max ?? "…") + ")";
+    if (bad && fl.type==="choice") val += "   (!)";
     const lines = doc.splitTextToSize(String(val), W);
     need(10 + lines.length*5);
-    doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text(fl.label, L, y); y += 5;
-    doc.setFont("helvetica","normal"); doc.setFontSize(11); doc.text(lines, L, y); y += lines.length*5 + 4;
+    doc.setTextColor(0); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text(fl.label, L, y); y += 5;
+    doc.setFont("helvetica", bad ? "bold" : "normal"); doc.setFontSize(11);
+    if (bad) doc.setTextColor(200,0,0);
+    doc.text(lines, L, y); doc.setTextColor(0); y += lines.length*5 + 4;
   });
   return doc.output("datauristring").split(",")[1];
 }
@@ -213,3 +247,5 @@ render(); status(); flush();
 </script>
 </body>
 </html>
+
+
