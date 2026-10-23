@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0B6E99">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<title>Mantenimiento centrales</title>
+<style>
+:root{--bg:#F2F5F4;--ink:#14262B;--mute:#4F6469;--line:#C9D5D6;--card:#fff;--acc:#0B6E99;--acc-ink:#fff;--ok:#2E7D4F;--warn:#B25E00}
+@media (prefers-color-scheme:dark){:root{--bg:#10191C;--ink:#E8F0F0;--mute:#9DB3B7;--line:#2C3E43;--card:#18262A;--acc:#4DB3E0;--acc-ink:#07161C;--ok:#6CC38A;--warn:#F0A04B}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--acc);color:var(--acc-ink);padding:12px 16px;display:flex;align-items:center;gap:12px}
+header h1{font-size:19px;margin:0;flex:1}
+header button{background:none;border:0;color:inherit;font-size:28px;line-height:1;padding:4px 10px;min-height:44px}
+main{max-width:720px;margin:0 auto;padding:16px 16px 90px}
+.item{display:block;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-left:6px solid var(--acc);border-radius:6px;padding:18px 16px;margin:0 0 10px;font-size:18px;color:var(--ink);min-height:64px}
+.item small{display:block;color:var(--mute);font-size:14px}
+.field{margin:0 0 20px}
+label{display:block;font-weight:600;margin-bottom:6px}
+input,select,textarea{width:100%;font:inherit;color:var(--ink);background:var(--card);border:2px solid var(--line);border-radius:6px;padding:12px;min-height:48px}
+input:focus,select:focus,textarea:focus,button:focus-visible{outline:3px solid var(--acc);outline-offset:1px}
+textarea{min-height:96px}
+.chk{display:flex;gap:12px;align-items:center;font-weight:600}
+.chk input{width:28px;height:28px;min-height:0}
+.hist{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;font-size:14px;color:var(--mute)}
+.hist button{background:var(--bg);border:1px solid var(--line);border-radius:16px;padding:6px 12px;font-size:14px;color:var(--ink);min-height:36px}
+.primary{width:100%;background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:16px;font-size:18px;font-weight:700;min-height:56px}
+.bar{position:fixed;left:0;right:0;bottom:0;padding:10px 16px;background:var(--card);border-top:1px solid var(--line);font-size:15px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.bar button{background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:8px 14px;min-height:40px;font-weight:600}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;background:var(--ok)}
+.dot.off{background:var(--warn)}
+.msg{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:14px;margin-bottom:14px;color:var(--mute)}
+</style>
+</head>
+<body>
+<header><button id="back" aria-label="Volver" hidden>‹</button><h1 id="title">Centrales</h1></header>
+<main id="app"></main>
+<div class="bar"><span id="status"></span><button id="sync">Sincronizar</button></div>
+<script src="jspdf.min.js"></script>
+<script>
+/* ============ CONFIGURACIÓN (edita aquí) ============ */
+const CONFIG = {
+  SCRIPT_URL: "https://script.google.com/macros/s/AKfycbyR-ic8SK2OPWvC3fD7bwdf6coGxYOsW_6YNI1cf2brrytUfgDwDO2tHScvv37SWdxi/exec",              // URL de la app web de Apps Script (ver LEEME)
+  KEY: "DAORJE",    // misma clave que en Code.gs
+  HISTORY_N: 5                 // cuántas entregas anteriores mostrar
+};
+
+// Formularios: "history:true" muestra lo respondido en entregas anteriores.
+const FORMS = {
+  revision_semanal: { title: "Revisión semanal", fields: [
+    {id:"fecha", label:"Fecha", type:"date"},
+    {id:"operario", label:"Operario", type:"text", history:true},
+    {id:"nivel", label:"Nivel de embalse (m)", type:"number", history:true},
+    {id:"caudal", label:"Caudal turbinado (m³/s)", type:"number", history:true},
+    {id:"estado", label:"Estado general", type:"select", options:["Correcto","Con incidencias"]},
+    {id:"obs", label:"Observaciones", type:"textarea"}]},
+  grupo_turbina: { title: "Grupo turbina-alternador", fields: [
+    {id:"fecha", label:"Fecha", type:"date"},
+    {id:"operario", label:"Operario", type:"text", history:true},
+    {id:"horas", label:"Horas de funcionamiento", type:"number", history:true},
+    {id:"temp_coj", label:"Temperatura cojinetes (°C)", type:"number", history:true},
+    {id:"vibra", label:"Vibraciones normales", type:"check"},
+    {id:"engrase", label:"Engrase realizado", type:"check"},
+    {id:"obs", label:"Observaciones", type:"textarea"}]},
+  obra_civil: { title: "Presa y obra civil", fields: [
+    {id:"fecha", label:"Fecha", type:"date"},
+    {id:"operario", label:"Operario", type:"text", history:true},
+    {id:"filtraciones", label:"Filtraciones", type:"select", options:["Ninguna","Leves","Importantes"], history:true},
+    {id:"rejillas", label:"Rejillas limpias", type:"check"},
+    {id:"obs", label:"Observaciones", type:"textarea"}]},
+  electrico: { title: "Transformador y cuadros eléctricos", fields: [
+    {id:"fecha", label:"Fecha", type:"date"},
+    {id:"operario", label:"Operario", type:"text", history:true},
+    {id:"temp_trafo", label:"Temperatura transformador (°C)", type:"number", history:true},
+    {id:"nivel_aceite", label:"Nivel de aceite", type:"select", options:["Correcto","Bajo"], history:true},
+    {id:"obs", label:"Observaciones", type:"textarea"}]}
+};
+
+// Centrales: cada una indica qué formularios tiene.
+const PLANTS = [
+  {id:"central_1", name:"Central 1", forms:["revision_semanal","grupo_turbina","obra_civil","electrico"]},
+  {id:"central_2", name:"Central 2", forms:["revision_semanal","grupo_turbina","electrico"]},
+  {id:"central_3", name:"Central 3", forms:["revision_semanal","grupo_turbina","obra_civil"]}
+];
+/* ====================================================== */
+
+const $ = s => document.querySelector(s);
+const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let view = {name:"home"};
+
+function go(v){ view = v; render(); window.scrollTo(0,0); }
+$("#back").onclick = () => go(view.name === "form" ? {name:"plant", plant:view.plant} : {name:"home"});
+
+function render(){
+  const app = $("#app"), back = $("#back");
+  back.hidden = view.name === "home";
+  if (view.name === "home"){
+    $("#title").textContent = "Centrales";
+    app.innerHTML = PLANTS.map(p => `<button class="item" data-p="${p.id}">${esc(p.name)}<small>${p.forms.length} formularios</small></button>`).join("");
+    app.querySelectorAll("[data-p]").forEach(b => b.onclick = () => go({name:"plant", plant:b.dataset.p}));
+  } else if (view.name === "plant"){
+    const p = PLANTS.find(x => x.id === view.plant);
+    $("#title").textContent = p.name;
+    app.innerHTML = p.forms.map(f => `<button class="item" data-f="${f}">${esc(FORMS[f].title)}${load("draft:"+p.id+":"+f,null) ? "<small>Borrador guardado</small>" : ""}</button>`).join("");
+    app.querySelectorAll("[data-f]").forEach(b => b.onclick = () => go({name:"form", plant:p.id, form:b.dataset.f}));
+  } else renderForm();
+}
+
+function histOf(plant, form){ return load("hist", []).filter(h => h.plant===plant && h.form===form).sort((a,b)=>b.ts-a.ts).slice(0, CONFIG.HISTORY_N); }
+
+function renderForm(){
+  const p = PLANTS.find(x => x.id === view.plant), f = FORMS[view.form];
+  $("#title").textContent = p.name + " · " + f.title;
+  const dk = "draft:"+p.id+":"+view.form, draft = load(dk, {}), hist = histOf(p.id, view.form);
+  let h = "";
+  f.fields.forEach(fl => {
+    const v = draft[fl.id] ?? (fl.type==="date" ? new Date().toISOString().slice(0,10) : "");
+    let input;
+    if (fl.type==="textarea") input = `<textarea id="f_${fl.id}">${esc(v)}</textarea>`;
+    else if (fl.type==="select") input = `<select id="f_${fl.id}"><option value="">Elegir…</option>${fl.options.map(o=>`<option ${o===v?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
+    else if (fl.type==="check") { h += `<div class="field"><label class="chk"><input type="checkbox" id="f_${fl.id}" ${v===true||v==="Sí"?"checked":""}>${esc(fl.label)}</label></div>`; return; }
+    else input = `<input id="f_${fl.id}" type="${fl.type==="number"?"text":fl.type}" ${fl.type==="number"?'inputmode="decimal"':""} value="${esc(v)}">`;
+    let hs = "";
+    if (fl.history){
+      const vals = hist.map(e => e.data[fl.id]).filter(x => x !== undefined && x !== "");
+      if (vals.length) hs = `<div class="hist"><span>Anteriores:</span>${vals.map(x=>`<button type="button" data-fill="${fl.id}" data-v="${esc(x)}">${esc(x)}</button>`).join("")}</div>`;
+    }
+    h += `<div class="field"><label for="f_${fl.id}">${esc(fl.label)}</label>${input}${hs}</div>`;
+  });
+  h += `<button class="primary" id="send">Guardar y enviar PDF</button>`;
+  $("#app").innerHTML = h;
+  const read = () => { const d = {}; f.fields.forEach(fl => { const el = $("#f_"+fl.id); d[fl.id] = fl.type==="check" ? el.checked : el.value.trim(); }); return d; };
+  $("#app").querySelectorAll("input,select,textarea").forEach(el => el.addEventListener("input", () => save(dk, read())));
+  $("#app").querySelectorAll("[data-fill]").forEach(b => b.onclick = () => { $("#f_"+b.dataset.fill).value = b.dataset.v; save(dk, read()); });
+  $("#send").onclick = () => submit(p, view.form, f, read(), dk);
+}
+
+function makePdf(p, f, data, when){
+  const { jsPDF } = window.jspdf, doc = new jsPDF({unit:"mm", format:"a4"});
+  let y = 20; const L = 18, W = 174;
+  const need = n => { if (y + n > 280){ doc.addPage(); y = 20; } };
+  doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.text(p.name, L, y); y += 8;
+  doc.setFontSize(13); doc.text(f.title, L, y); y += 6;
+  doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.text("Enviado: " + when.toLocaleString("es-ES"), L, y); y += 4;
+  doc.line(L, y, L+W, y); y += 8;
+  f.fields.forEach(fl => {
+    const val = fl.type==="check" ? (data[fl.id] ? "Sí" : "No") : (data[fl.id] || "—");
+    const lines = doc.splitTextToSize(String(val), W);
+    need(10 + lines.length*5);
+    doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text(fl.label, L, y); y += 5;
+    doc.setFont("helvetica","normal"); doc.setFontSize(11); doc.text(lines, L, y); y += lines.length*5 + 4;
+  });
+  return doc.output("datauristring").split(",")[1];
+}
+
+function submit(p, formId, f, data, dk){
+  const when = new Date(), id = when.getTime() + "-" + Math.random().toString(36).slice(2,6);
+  const pad = n => String(n).padStart(2,"0");
+  const stamp = `${when.getFullYear()}-${pad(when.getMonth()+1)}-${pad(when.getDate())}_${pad(when.getHours())}${pad(when.getMinutes())}`;
+  let pdf;
+  try { pdf = makePdf(p, f, data, when); } catch(e){ alert("No se pudo crear el PDF: " + e.message); return; }
+  const q = load("queue", []);
+  q.push({id, plantName:p.name, formTitle:f.title, filename:`${p.name}_${f.title}_${stamp}.pdf`.replace(/[\\/:*?"<>|]/g,"-"), pdf, plant:p.id, form:formId, ts:when.getTime(), data});
+  save("queue", q);
+  const hist = load("hist", []); hist.push({id, plant:p.id, form:formId, ts:when.getTime(), data}); save("hist", hist.slice(-400));
+  localStorage.removeItem(dk);
+  go({name:"plant", plant:p.id});
+  status(); flush();
+}
+
+let syncing = false;
+async function flush(){
+  if (syncing || !CONFIG.SCRIPT_URL || !navigator.onLine) return;
+  syncing = true; status();
+  try {
+    for (const item of load("queue", [])){
+      const r = await fetch(CONFIG.SCRIPT_URL, {method:"POST", headers:{"Content-Type":"text/plain;charset=utf-8"},
+        body: JSON.stringify({key:CONFIG.KEY, plantName:item.plantName, formTitle:item.formTitle, filename:item.filename, pdf:item.pdf, id:item.id, plant:item.plant, form:item.form, ts:item.ts, data:item.data})});
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || "Error del servidor");
+      save("queue", load("queue", []).filter(x => x.id !== item.id));
+      status();
+    }
+    const r = await fetch(CONFIG.SCRIPT_URL + "?key=" + encodeURIComponent(CONFIG.KEY) + "&n=300");
+    const j = await r.json();
+    if (j.ok){
+      const have = new Set(load("hist", []).map(h => h.id));
+      const merged = load("hist", []).concat(j.entries.filter(e => !have.has(e.id)));
+      save("hist", merged.sort((a,b)=>a.ts-b.ts).slice(-400));
+    }
+  } catch(e){ console.warn("Sincronización pendiente:", e.message); }
+  syncing = false; status();
+  if (view.name === "plant" || view.name === "home") render();
+}
+
+function status(){
+  const n = load("queue", []).length, on = navigator.onLine;
+  $("#status").innerHTML = `<span class="dot ${on?"":"off"}"></span>${on?"Con cobertura":"Sin cobertura"}${n?` · ${n} PDF pendiente${n>1?"s":""}`:""}${!CONFIG.SCRIPT_URL?" · Drive sin configurar":""}`;
+}
+$("#sync").onclick = flush;
+addEventListener("online", () => { status(); flush(); });
+addEventListener("offline", status);
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
+render(); status(); flush();
+</script>
+</body>
+</html>
