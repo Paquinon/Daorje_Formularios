@@ -81,10 +81,61 @@ const BASE = [
   {id:"presion", label:"Presión de agua", unit:"bar", type:"number", min:2, max:6, history:true},
   {id:"obs", label:"Observaciones", type:"textarea", optional:true}
 ];
+
+  // ---------- SIVI D · CH SESUE (según el papel) ----------
+const _OKI=["Correcto","Incorrecto"], _NOSI=["No","Si"];
+const _sec=(c,t)=>({type:"section",code:c,label:c+" · "+t});
+const _ok=l=>({label:l,type:"choice",options:_OKI,bad:["Incorrecto"]});   // Incorrecto = anomalía
+const _an=l=>({label:l,type:"choice",options:_NOSI,bad:["Si"]});          // Si = anomalía
+const _ch=(l,o)=>({label:l,type:"choice",options:o});                     // sin anomalía
+const _rd=(l,u,min,max)=>({label:l,type:"number",unit:u,min,max,history:true});
+const SIVI_D_RAW=[
+ _sec("0002","EDIFICIO CENTRAL_GENERAL"), _ok("ESTADO PUERTA"),
+ _sec("0004","EDIFICIO_INTERIOR"), _ok("ESTADO PUERTA"),
+ _sec("0008","SALA DE MANDO_GENERAL"), _ok("TONO TELEFONO_974553120"),
+ _sec("0009","SALA DE MANDO_ESTADO GRUPOS"),
+   _ch("GRUPO 1",["Servicio","Descargo"]), _ch("GRUPO 1 DG1",["Marcha","Paro"]),
+   _ch("GRUPO 2",["Servicio","Descargo"]), _ch("GRUPO 2 DG2",["Marcha","Paro"]),
+ _sec("0010","SALA DE MANDO_MESA TERMINAL LOCAL"),
+   _ok("ESTADO PC IDACS"), _ok("ALARMAS ACTIVAS"), _ok("COTA LINSOLES"), _ok("SAI"),
+ _sec("0011","SALA CONTROL_CONTROL G2"), _rd("POTENCIA ACTIVA (PG2 DG2)"),
+ _sec("0012","SALA CONTROL_CONTROL G1"), _rd("POTENCIA ACTIVA (PG1 DG1)"),
+ _sec("0029","NAVE DESENCUBADO_ACCESO GENERAL"), _ok("ESTADO PUERTA"),
+ _sec("0039","SALA MAQ_ALTER G2 SIST ALTER"), _ok("ESTADO GENERAL (DG2)"),
+ _sec("0040","SALA MAQ_COJ GUIA ALTER G2"),
+   _rd("TEMP COJ GUIA ALTER PG2","°C"), _ok("NIVEL ACEITE_COJ GUIA ALTER"),
+   _an("ANOMALIA CONTENCION (ACEITE)"), _an("ANOMALIA CONTENCION (AGUA) DG2"),
+ _sec("0041","SALA MAQ_COJ GUIA TURBINA G2"),
+   _rd("TEMP COJ GUIA TURBINA G2 (DG2 PG2)","°C"), _ok("NIVEL ACEITE_COJ GUIA DG2"),
+   _an("ANOMALIA CONTENCION (ACEITE)"), _an("ANOMALIA CONTENCION (AGUA)"),
+ _sec("0058","SALA MAQ_COJ GUIA TURBINA G1"),
+   _rd("TEMP COJ GUIA TURBINA (PG1 DG1)","°C"), _an("ANOMALIA CONTENCION (ACEITE)"),
+ _sec("0078","SALA MAQ_BATERIAS 110V"), _ok("ESTADO GENERAL"),
+ _sec("0080","BATERIA 2 125 V C.C._GENERAL"), _rd("TENSION 125 V C.C.","V",115,undefined),
+ _sec("0083","SALA CUADRO RELES_GENERAL"), _ok("ESTADO SALA"),
+ _sec("0111","RECINTO INF CELDAS_SALA BOMBAS DRENAJE"), _ok("ESTADO GENERAL"),
+ _sec("0112","CDO POZO BOMBAS_GENERAL"), _ch("POSICION CONMUTADOR",["Automatico","Manual"]),
+ _sec("0113","ACCESO PLANTA SOTANO _ G1 GENERAL"), _ok("ESTADO ESCALERA"),
+ _sec("0119","PLANTA SOTANO_POZO DRENAJE"),
+   _ok("ESTADO GENERAL BOYAS"), _ok("NIVEL AGUA"), _an("PRESENCIA NIVEL_ACEITE EN EL POZO"), _ok("ESTADO RECINTO"),
+ _sec("0120","ACCESO PLANTA SOTANO _ G2 GENERAL"), _ok("ESTADO ESCALERA")
+];
+const SIVI_D=(()=>{
+  let code="", n=0;
+  const out=[{id:"fecha",label:"Fecha y hora de inicio",type:"datetime"},{id:"hora_fin",label:"Hora final",type:"endtime"}];
+  SIVI_D_RAW.forEach(x=>{
+    if(x.type==="section"){ code=x.code; n=0; out.push(Object.assign({id:"s"+code},x)); }
+    else { n++; out.push(Object.assign({id:code+"_"+n},x)); }
+  });
+  out.push({id:"realizado",label:"Realizado por",type:"text",history:true});
+  out.push({id:"total",label:"Total anomalías",type:"total"});
+  return out;
+})();
 const FORMS = {
   sivi_a: { title: "SIVI A", fields: BASE },
   sivi_b: { title: "SIVI B", fields: BASE },
-  sivi_c: { title: "SIVI C", fields: BASE }
+  sivi_c: { title: "SIVI C", fields: BASE },
+  sivi_d: { title: "SIVI D", fields: SIVI_D }
 };
 
 // Centrales: cada una indica qué formularios tiene (por su identificador de FORMS).
@@ -93,7 +144,7 @@ const PLANTS = [
   {id:"central_2", name:"CH BAÑOS",     forms:["sivi_a","sivi_b","sivi_c"]},
   {id:"central_3", name:"CH LA SARRA",  forms:["sivi_a","sivi_b","sivi_c"]},
   {id:"central_4", name:"CH BIESCAS I", forms:["sivi_a","sivi_b","sivi_c"]},
-  {id:"central_5", name:"CH SESUE",     forms:["sivi_a","sivi_b","sivi_c"]}
+  {id:"central_5", name:"CH SESUE",     forms:["sivi_a","sivi_b","sivi_c","sivi_d"]}
 ];
 /* ====================================================== */
 
