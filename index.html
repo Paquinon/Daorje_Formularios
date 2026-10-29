@@ -37,6 +37,13 @@ input.out{border-color:#C62828;background:#FDE7E7;color:#7A0000;font-weight:700}
 .range.out{color:#C62828;font-weight:700}
 .range.out::after{content:" · FUERA DE RANGO"}
 .hist button.badchip{border-color:#C62828;color:#C62828}
+.err{display:none;color:#C62828;font-weight:700;font-size:14px;margin-top:6px}
+.field.missing .err{display:block}
+.field.missing input:not([type=checkbox]),.field.missing select,.field.missing textarea{border-color:#C62828}
+.field.missing .seg button{border-color:#C62828}
+.errbox{border-color:#C62828;color:#C62828;font-weight:700;background:#FDE7E7}
+.danger{width:100%;margin-top:14px;background:none;color:#C62828;border:2px solid #C62828;border-radius:6px;padding:14px;font-size:17px;font-weight:700;min-height:52px}
+@media (prefers-color-scheme:dark){.errbox{background:#3A1616;color:#FF8A80}.danger{color:#FF8A80;border-color:#FF8A80}}
 .primary{width:100%;background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:16px;font-size:18px;font-weight:700;min-height:56px}
 .bar{position:fixed;left:0;right:0;bottom:0;padding:10px 16px;background:var(--card);border-top:1px solid var(--line);font-size:15px;display:flex;justify-content:space-between;gap:10px;align-items:center}
 .bar button{background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:8px 14px;min-height:40px;font-weight:600}
@@ -51,7 +58,7 @@ input.out{border-color:#C62828;background:#FDE7E7;color:#7A0000;font-weight:700}
 <div class="bar"><span id="status"></span><button id="sync">Sincronizar</button></div>
 <script src="jspdf.min.js"></script>
 <script>
-/* ============ CONFIGURACIÓN (edita aquí) ============ */
+/* ============ CONFIGURACIÓN ============ */
 const CONFIG = {
   SCRIPT_URL: "https://script.google.com/macros/s/AKfycbyR-ic8SK2OPWvC3fD7bwdf6coGxYOsW_6YNI1cf2brrytUfgDwDO2tHScvv37SWdxi/exec",              // URL de la app web de Apps Script (ver LEEME)
   KEY: "DAORJE",    // misma clave que en Code.gs
@@ -79,7 +86,7 @@ const FORMS = {
   sivi_b: { title: "SIVI B", fields: BASE },
   sivi_c: { title: "SIVI C", fields: BASE }
 };
- 
+
 // Centrales: cada una indica qué formularios tiene (por su identificador de FORMS).
 const PLANTS = [
   {id:"central_1", name:"CH SALLENT",   forms:["sivi_a","sivi_b","sivi_c"]},
@@ -89,16 +96,16 @@ const PLANTS = [
   {id:"central_5", name:"CH SESUE",     forms:["sivi_a","sivi_b","sivi_c"]}
 ];
 /* ====================================================== */
- 
+
 const $ = s => document.querySelector(s);
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let view = {name:"home"};
- 
+
 function go(v){ view = v; render(); window.scrollTo(0,0); }
 $("#back").onclick = () => go(view.name === "form" ? {name:"plant", plant:view.plant} : {name:"home"});
- 
+
 function render(){
   const app = $("#app"), back = $("#back");
   back.hidden = view.name === "home";
@@ -113,9 +120,9 @@ function render(){
     app.querySelectorAll("[data-f]").forEach(b => b.onclick = () => go({name:"form", plant:p.id, form:b.dataset.f}));
   } else renderForm();
 }
- 
+
 function histOf(plant, form){ return load("hist", []).filter(h => h.plant===plant && h.form===form).sort((a,b)=>b.ts-a.ts).slice(0, CONFIG.HISTORY_N); }
- 
+
 const nowStr = () => { const d = new Date(), p = n => String(n).padStart(2,"0"); return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 const outOf = (fl, val) => {
   if (fl.type !== "number" || val === "" || val === undefined) return false;
@@ -124,7 +131,7 @@ const outOf = (fl, val) => {
   return (fl.min !== undefined && n < fl.min) || (fl.max !== undefined && n > fl.max);
 };
 const isBad = (fl, val) => fl.type === "choice" ? (fl.bad || []).includes(val) : outOf(fl, val);
- 
+
 function renderForm(){
   const p = PLANTS.find(x => x.id === view.plant), f = FORMS[view.form];
   $("#title").textContent = p.name + " · " + f.title;
@@ -150,7 +157,7 @@ function renderForm(){
   });
   h += `<div class="msg errbox" id="errmsg" hidden></div><button class="primary" id="send">Guardar y enviar PDF</button><button class="danger" id="del">Borrar y empezar de nuevo</button>`;
   $("#app").innerHTML = h;
- 
+
   const read = () => { const d = {}; f.fields.forEach(fl => { const el = $("#f_"+fl.id); d[fl.id] = fl.type==="check" ? el.checked : fl.type==="choice" ? el.dataset.v : el.value.trim(); }); return d; };
   const mark = fl => { // pinta en rojo los números fuera de rango
     const el = $("#f_"+fl.id), r = $("#r_"+fl.id), bad = outOf(fl, el.value.trim());
@@ -186,7 +193,7 @@ function renderForm(){
   };
   $("#del").onclick = () => { if (confirm("¿Borrar todo lo rellenado en este formulario y empezar de nuevo?")){ localStorage.removeItem(dk); renderForm(); window.scrollTo(0,0); } };
 }
- 
+
 function makePdf(p, f, data, when){
   const { jsPDF } = window.jspdf, doc = new jsPDF({unit:"mm", format:"a4"});
   let y = 20; const L = 18, W = 174;
@@ -210,7 +217,7 @@ function makePdf(p, f, data, when){
   });
   return doc.output("datauristring").split(",")[1];
 }
- 
+
 function submit(p, formId, f, data, dk){
   const when = new Date(), id = when.getTime() + "-" + Math.random().toString(36).slice(2,6);
   const pad = n => String(n).padStart(2,"0");
@@ -225,7 +232,7 @@ function submit(p, formId, f, data, dk){
   go({name:"plant", plant:p.id});
   status(); flush();
 }
- 
+
 let syncing = false;
 async function flush(){
   if (syncing || !CONFIG.SCRIPT_URL || !navigator.onLine) return;
@@ -250,7 +257,7 @@ async function flush(){
   syncing = false; status();
   if (view.name === "plant" || view.name === "home") render();
 }
- 
+
 function status(){
   const n = load("queue", []).length, on = navigator.onLine;
   $("#status").innerHTML = `<span class="dot ${on?"":"off"}"></span>${on?"Con cobertura":"Sin cobertura"}${n?` · ${n} PDF pendiente${n>1?"s":""}`:""}${!CONFIG.SCRIPT_URL?" · Drive sin configurar":""}`;
@@ -258,10 +265,9 @@ function status(){
 $("#sync").onclick = flush;
 addEventListener("online", () => { status(); flush(); });
 addEventListener("offline", status);
- 
+
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
 render(); status(); flush();
 </script>
 </body>
 </html>
- 
