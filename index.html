@@ -44,6 +44,7 @@ input.out{border-color:#C62828;background:#FDE7E7;color:#7A0000;font-weight:700}
 .errbox{border-color:#C62828;color:#C62828;font-weight:700;background:#FDE7E7}
 .danger{width:100%;margin-top:14px;background:none;color:#C62828;border:2px solid #C62828;border-radius:6px;padding:14px;font-size:17px;font-weight:700;min-height:52px}
 @media (prefers-color-scheme:dark){.errbox{background:#3A1616;color:#FF8A80}.danger{color:#FF8A80;border-color:#FF8A80}}
+.sec{font-size:15px;margin:28px 0 14px;padding:8px 10px;background:var(--line);border-radius:4px;letter-spacing:.3px}
 .primary{width:100%;background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:16px;font-size:18px;font-weight:700;min-height:56px}
 .bar{position:fixed;left:0;right:0;bottom:0;padding:10px 16px;background:var(--card);border-top:1px solid var(--line);font-size:15px;display:flex;justify-content:space-between;gap:10px;align-items:center}
 .bar button{background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:8px 14px;min-height:40px;font-weight:600}
@@ -70,6 +71,8 @@ const CONFIG = {
 //  choice   : botones. "bad" = opciones que se marcan en rojo (opcional)
 //  number   : valor con rango normal min/max; si se sale, se pone en rojo
 //  text, textarea, select, check, date
+//  section  : título de bloque   endtime: hora final (se anota al enviar)
+//  total    : cuenta sola las anomalías (opciones malas + valores fuera de rango)
 // Todos los campos son OBLIGATORIOS salvo los que lleven optional:true
 // "history:true" muestra lo respondido en entregas anteriores.
 const BASE = [
@@ -81,8 +84,7 @@ const BASE = [
   {id:"presion", label:"Presión de agua", unit:"bar", type:"number", min:2, max:6, history:true},
   {id:"obs", label:"Observaciones", type:"textarea", optional:true}
 ];
-
-  // ---------- SIVI D · CH SESUE (según el papel) ----------
+// ---------- SIVI D · CH SESUE (según el papel) ----------
 const _OKI=["Correcto","Incorrecto"], _NOSI=["No","Si"];
 const _sec=(c,t)=>({type:"section",code:c,label:c+" · "+t});
 const _ok=l=>({label:l,type:"choice",options:_OKI,bad:["Incorrecto"]});   // Incorrecto = anomalía
@@ -131,6 +133,7 @@ const SIVI_D=(()=>{
   out.push({id:"total",label:"Total anomalías",type:"total"});
   return out;
 })();
+
 const FORMS = {
   sivi_a: { title: "SIVI A", fields: BASE },
   sivi_b: { title: "SIVI B", fields: BASE },
@@ -189,10 +192,13 @@ function renderForm(){
   const dk = "draft:"+p.id+":"+view.form, draft = load(dk, {}), hist = histOf(p.id, view.form);
   let h = "";
   f.fields.forEach(fl => {
+    if (fl.type==="section"){ h += `<h2 class="sec">${esc(fl.label)}</h2>`; return; }
     const v = draft[fl.id] ?? "";
     const unit = fl.unit ? ` (${esc(fl.unit)})` : "";
     let input, hint = "";
     if (fl.type==="datetime") input = `<input id="f_${fl.id}" readonly value="${esc(v || nowStr())}">`;
+    else if (fl.type==="endtime") input = `<input id="f_${fl.id}" readonly value="Se anota al enviar">`;
+    else if (fl.type==="total") input = `<input id="f_${fl.id}" readonly value="0">`;
     else if (fl.type==="choice") input = `<div class="seg" id="f_${fl.id}" data-v="${esc(v)}">${fl.options.map(o=>`<button type="button" data-o="${esc(o)}" class="${o===v?"on":""} ${o===v&&(fl.bad||[]).includes(o)?"bad":""}">${esc(o)}</button>`).join("")}</div>`;
     else if (fl.type==="check") { h += `<div class="field" id="w_${fl.id}"><label class="chk"><input type="checkbox" id="f_${fl.id}" ${v===true?"checked":""}>${esc(fl.label)}</label></div>`; return; }
     else if (fl.type==="textarea") input = `<textarea id="f_${fl.id}">${esc(v)}</textarea>`;
@@ -204,12 +210,13 @@ function renderForm(){
       const vals = hist.map(e => e.data[fl.id]).filter(x => x !== undefined && x !== "");
       if (vals.length) hs = `<div class="hist"><span>Anteriores:</span>${vals.map(x=>`<button type="button" data-fill="${fl.id}" data-v="${esc(x)}" class="${outOf(fl,x)?"badchip":""}">${esc(x)}</button>`).join("")}</div>`;
     }
-    h += `<div class="field" id="w_${fl.id}"><label for="f_${fl.id}">${esc(fl.label)}${unit}${fl.optional||fl.type==="datetime"?"":" *"}</label>${input}${hint}${hs}<div class="err">Obligatorio</div></div>`;
+    h += `<div class="field" id="w_${fl.id}"><label for="f_${fl.id}">${esc(fl.label)}${unit}${fl.optional||["datetime","endtime","total"].includes(fl.type)?"":" *"}</label>${input}${hint}${hs}<div class="err">Obligatorio</div></div>`;
   });
   h += `<div class="msg errbox" id="errmsg" hidden></div><button class="primary" id="send">Guardar y enviar PDF</button><button class="danger" id="del">Borrar y empezar de nuevo</button>`;
   $("#app").innerHTML = h;
 
-  const read = () => { const d = {}; f.fields.forEach(fl => { const el = $("#f_"+fl.id); d[fl.id] = fl.type==="check" ? el.checked : fl.type==="choice" ? el.dataset.v : el.value.trim(); }); return d; };
+  const read = () => { const d = {}; f.fields.forEach(fl => { if (fl.type==="section") return; const el = $("#f_"+fl.id); d[fl.id] = fl.type==="check" ? el.checked : fl.type==="choice" ? el.dataset.v : fl.type==="endtime" ? "" : el.value.trim(); }); return d; };
+  const total = () => { const t = f.fields.find(x => x.type==="total"); if (!t) return; const d = read(); let n = 0; f.fields.forEach(fl => { if (fl.type!=="section" && fl.type!=="total" && isBad(fl, d[fl.id])) n++; }); $("#f_"+t.id).value = String(n); };
   const mark = fl => { // pinta en rojo los números fuera de rango
     const el = $("#f_"+fl.id), r = $("#r_"+fl.id), bad = outOf(fl, el.value.trim());
     el.classList.toggle("out", bad); if (r) { r.classList.toggle("out", bad); }
@@ -225,12 +232,14 @@ function renderForm(){
     });
   });
   $("#app").querySelectorAll("[data-fill]").forEach(b => b.onclick = () => { const el = $("#f_"+b.dataset.fill); el.value = b.dataset.v; el.dispatchEvent(new Event("input")); });
-  const filled = (fl, v) => fl.type==="check" || fl.type==="datetime" ? true
+  const filled = (fl, v) => ["check","datetime","endtime","total","section"].includes(fl.type) ? true
     : fl.type==="number" ? (v !== "" && !isNaN(parseFloat(String(v).replace(",", "."))))
     : (v !== "" && v !== undefined);
-  $("#app").querySelectorAll(".field").forEach(w => { const clear = () => w.classList.remove("missing"); w.addEventListener("input", clear); w.addEventListener("click", clear); });
+  $("#app").querySelectorAll(".field").forEach(w => { const clear = () => { w.classList.remove("missing"); total(); }; w.addEventListener("input", clear); w.addEventListener("click", clear); });
+  total();
   $("#send").onclick = () => {
-    const d = read(), miss = f.fields.filter(fl => !fl.optional && !filled(fl, d[fl.id]));
+    total(); const d = read(); f.fields.filter(fl => fl.type==="endtime").forEach(fl => d[fl.id] = nowStr());
+    const miss = f.fields.filter(fl => !fl.optional && !filled(fl, d[fl.id]));
     $("#app").querySelectorAll(".field").forEach(w => w.classList.remove("missing"));
     const box = $("#errmsg");
     if (miss.length){
@@ -247,24 +256,37 @@ function renderForm(){
 
 function makePdf(p, f, data, when){
   const { jsPDF } = window.jspdf, doc = new jsPDF({unit:"mm", format:"a4"});
-  let y = 20; const L = 18, W = 174;
-  const need = n => { if (y + n > 280){ doc.addPage(); y = 20; } };
-  doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.text(p.name, L, y); y += 8;
-  doc.setFontSize(13); doc.text(f.title, L, y); y += 6;
-  doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.text("Enviado: " + when.toLocaleString("es-ES"), L, y); y += 4;
-  doc.line(L, y, L+W, y); y += 8;
+  let y = 18; const L = 15, W = 180, VX = L + 112;
+  const need = n => { if (y + n > 284){ doc.addPage(); y = 18; } };
+  doc.setFont("helvetica","bold"); doc.setFontSize(16); doc.text(p.name, L, y); y += 7;
+  doc.setFontSize(13); doc.text(f.title, L, y); y += 5;
+  doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.text("Enviado: " + when.toLocaleString("es-ES"), L, y); y += 3;
+  doc.line(L, y, L+W, y); y += 6;
   f.fields.forEach(fl => {
+    if (fl.type==="section"){
+      need(14); y += 2; doc.setFillColor(222,232,235); doc.rect(L, y-4.5, W, 6.5, "F");
+      doc.setTextColor(0); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text(fl.label, L+1.5, y); y += 7; return;
+    }
     const raw = data[fl.id], bad = isBad(fl, raw);
     let val = fl.type==="check" ? (raw ? "Sí" : "No") : (raw || "—");
     if (fl.type==="number" && raw) val += (fl.unit ? " " + fl.unit : "");
-    if (bad && fl.type==="number") val += "   (FUERA DE RANGO " + (fl.min ?? "…") + " - " + (fl.max ?? "…") + ")";
-    if (bad && fl.type==="choice") val += "   (!)";
-    const lines = doc.splitTextToSize(String(val), W);
-    need(10 + lines.length*5);
-    doc.setTextColor(0); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text(fl.label, L, y); y += 5;
-    doc.setFont("helvetica", bad ? "bold" : "normal"); doc.setFontSize(11);
-    if (bad) doc.setTextColor(200,0,0);
-    doc.text(lines, L, y); doc.setTextColor(0); y += lines.length*5 + 4;
+    if (bad && fl.type==="number") val += "  (FUERA DE RANGO)";
+    if (bad && fl.type==="choice") val += "  (!)";
+    doc.setTextColor(0);
+    if (fl.type==="textarea"){
+      const lines = doc.splitTextToSize(String(val), W);
+      need(10 + lines.length*5);
+      doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text(fl.label, L, y); y += 5;
+      doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.text(lines, L, y); y += lines.length*5 + 3;
+      return;
+    }
+    doc.setFont("helvetica","normal"); doc.setFontSize(9.5);
+    const ll = doc.splitTextToSize(fl.label + (fl.unit && fl.type!=="number" ? "" : ""), 108);
+    need(ll.length*4.6 + 2);
+    doc.text(ll, L+1.5, y);
+    doc.setFont("helvetica","bold"); if (bad) doc.setTextColor(200,0,0);
+    doc.text(String(val), VX, y); doc.setTextColor(0);
+    y += Math.max(ll.length*4.6, 5) + 1.2;
   });
   return doc.output("datauristring").split(",")[1];
 }
