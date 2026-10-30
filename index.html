@@ -46,6 +46,10 @@ input.out{border-color:#C62828;background:#FDE7E7;color:#7A0000;font-weight:700}
 @media (prefers-color-scheme:dark){.errbox{background:#3A1616;color:#FF8A80}.danger{color:#FF8A80;border-color:#FF8A80}}
 .tramo{font-size:17px;margin:36px 0 6px;padding:12px;background:#14465A;color:#fff;border-radius:4px}
 .prog{position:sticky;top:64px;z-index:4;font-weight:700;color:var(--ink);padding:8px 12px;margin-bottom:6px}
+.nalab{display:none;margin-top:6px;font-weight:700;color:var(--mute)}
+.field.na{opacity:.55}
+.field.na .nalab{display:block}
+.seg.na{pointer-events:none;opacity:.6}
 .sec{font-size:15px;margin:28px 0 14px;padding:8px 10px;background:var(--line);border-radius:4px;letter-spacing:.3px}
 .primary{width:100%;background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:16px;font-size:18px;font-weight:700;min-height:56px}
 .bar{position:fixed;left:0;right:0;bottom:0;padding:10px 16px;background:var(--card);border-top:1px solid var(--line);font-size:15px;display:flex;justify-content:space-between;gap:10px;align-items:center}
@@ -92,14 +96,17 @@ const BASE = [
 // En cada pregunta de opciones, la 2ª opción es la anomalía (como en el papel),
 // salvo estos pares, que son estados normales de la planta y no cuentan:
 const NEUTRAL = ["Servicio|Descargo","Marcha|Paro","Automatico|Manual"];
+// Bloqueo por grupo: Descargo bloquea todo lo del grupo; Paro bloquea temperaturas, potencias y vibraciones.
+const grpOf = s => /DG1|PG1|\bGR(?:UPO)? ?1\b/.test(s) ? 1 : /DG2|PG2|\bGR(?:UPO)? ?2\b/.test(s) ? 2 : 0;
+const PARO_RE = /TEMP|POTENCIA|VIBRAC|^COJ|AP DISTRIBUIDOR/;
 const unitOf = l => /TEMP/.test(l) ? "°C" : /TENSION/.test(l) ? "V" : /FRECUENCIA/.test(l) ? "Hz" : /HORAS/.test(l) ? "h" : undefined;
 function buildForm(rows){
   const out = [{id:"fecha",label:"Fecha y hora de inicio",type:"datetime"},{id:"hora_fin",label:"Hora final",type:"endtime"}];
-  let tr = 0, code = "", n = 0, trLabel = "";
+  let tr = 0, code = "", n = 0, trLabel = "", sg = 0; const ctl = {};
   rows.forEach(r => {
     const k = r[0];
     if (k==="T"){ tr++; code = ""; trLabel = r[1]; out.push({id:"t"+tr, type:"tramo", label:"TRAMO "+r[1]}); }
-    else if (k==="S"){ code = r[1]; n = 0; out.push({id:`t${tr}s${code}`, type:"section", label:r[1]+" · "+r[2]}); }
+    else if (k==="S"){ code = r[1]; n = 0; { const bm = /BARRAS 11 KV G ?([12])/.exec(r[2]); sg = grpOf(r[2]) || (bm ? +bm[1] : 0); } out.push({id:`t${tr}s${code}`, type:"section", label:r[1]+" · "+r[2]}); }
     else if (k==="X"){ out.push({id:"x"+tr, type:"total", scope:"tramo", label:"Total anomalías · tramo "+trLabel.split(" (")[0]}); }
     else {
       n++; const id = `t${tr}_${code}_${n}`;
@@ -109,8 +116,15 @@ function buildForm(rows){
         const neutral = NEUTRAL.includes(r[2]+"|"+r[3]);
         out.push({id, label:r[1], type:"choice", options:[r[2],r[3]], bad: neutral ? [] : (/FALTA/.test(r[1]) ? ["Si"] : [r[3]])});
       } else out.push({id, label:r[1], type:"number", unit:unitOf(r[1]), min:r[2], max:r[3], history:true});
+      const o = out[out.length-1], g = sg || grpOf(r[1]);
+      if (g && code !== "0009"){ o.grp = g; if (o.type==="number" && PARO_RE.test(r[1])) o.pk = true; }
+      if (code === "0009" && k === "C"){
+        const m = r[1].match(/^GRUPO (\d)\b/);
+        if (m){ if (r[2]==="Servicio") ctl["d"+m[1]] = id; if (r[2]==="Marcha") ctl["p"+m[1]] = id; }
+      }
     }
   });
+  out.ctl = ctl;
   out.push({id:"realizado", label:"Realizado por", type:"text", history:true});
   if (tr > 1) out.push({id:"x_all", type:"total", scope:"all", label:"Total anomalías (todos los tramos)"});
   return out;
@@ -139,7 +153,9 @@ const PLANTS = [
 
 const $ = s => document.querySelector(s);
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
-const save = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch(e){ return false; } };
+// El historial solo conserva las últimas entregas de cada formulario (si no, el móvil se queda sin espacio)
+const pruneHist = list => { const keep = {}, out = []; list.sort((a,b)=>b.ts-a.ts).forEach(e => { const k = e.plant+"|"+e.form; keep[k] = (keep[k]||0)+1; if (keep[k] <= CONFIG.HISTORY_N + 3) out.push(e); }); return out.reverse(); };
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let view = {name:"home"};
 
@@ -171,7 +187,8 @@ const outOf = (fl, val) => {
   if (isNaN(n)) return true;
   return (fl.min !== undefined && n < fl.min) || (fl.max !== undefined && n > fl.max);
 };
-const isBad = (fl, val) => fl.type === "choice" ? (fl.bad || []).includes(val) : outOf(fl, val);
+const isNA = v => typeof v === "string" && v.startsWith("No aplica");
+const isBad = (fl, val) => isNA(val) ? false : fl.type === "choice" ? (fl.bad || []).includes(val) : outOf(fl, val);
 
 function renderForm(){
   const p = PLANTS.find(x => x.id === view.plant), f = FORMS[view.form];
@@ -195,17 +212,24 @@ function renderForm(){
     if (fl.type==="number" && (fl.min!==undefined || fl.max!==undefined)) hint = `<div class="range" id="r_${fl.id}">Normal: ${fl.min ?? "…"} a ${fl.max ?? "…"} ${esc(fl.unit||"")}</div>`;
     let hs = "";
     if (fl.history){
-      const vals = hist.map(e => e.data[fl.id]).filter(x => x !== undefined && x !== "");
+      const vals = hist.map(e => e.data[fl.id]).filter(x => x !== undefined && x !== "" && !isNA(x));
       if (vals.length) hs = `<div class="hist"><span>Anteriores:</span>${vals.map(x=>`<button type="button" data-fill="${fl.id}" data-v="${esc(x)}" class="${outOf(fl,x)?"badchip":""}">${esc(x)}</button>`).join("")}</div>`;
     }
-    h += `<div class="field" id="w_${fl.id}"><label for="f_${fl.id}">${esc(fl.label)}${unit}${fl.optional||["datetime","endtime","total"].includes(fl.type)?"":" *"}</label>${input}${hint}${hs}<div class="err">Obligatorio</div></div>`;
+    h += `<div class="field" id="w_${fl.id}"><label for="f_${fl.id}">${esc(fl.label)}${unit}${fl.optional||["datetime","endtime","total"].includes(fl.type)?"":" *"}</label>${input}${hint}${hs}<div class="err">Obligatorio</div><div class="nalab"></div></div>`;
   });
   h += `<div class="msg errbox" id="errmsg" hidden></div><button class="primary" id="send">Guardar y enviar PDF</button><button class="danger" id="del">Borrar y empezar de nuevo</button>`;
   $("#app").innerHTML = h;
 
-  const read = () => { const d = {}; f.fields.forEach(fl => { if (fl.type==="section" || fl.type==="tramo") return; const el = $("#f_"+fl.id); d[fl.id] = fl.type==="check" ? el.checked : fl.type==="choice" ? el.dataset.v : fl.type==="endtime" ? "" : el.value.trim(); }); return d; };
+  const ctl = f.fields.ctl || {};
+  const naOf = (fl, d) => !fl.grp ? "" : d[ctl["d"+fl.grp]]==="Descargo" ? "No aplica por descargo" : (fl.pk && d[ctl["p"+fl.grp]]==="Paro") ? "No aplica por paro" : "";
+  const read = final => {
+    const d = {};
+    f.fields.forEach(fl => { if (fl.type==="section" || fl.type==="tramo") return; const el = $("#f_"+fl.id); d[fl.id] = fl.type==="check" ? el.checked : fl.type==="choice" ? el.dataset.v : fl.type==="endtime" ? "" : el.value.trim(); });
+    if (final) f.fields.forEach(fl => { const t = naOf(fl, d); if (t) d[fl.id] = t; });
+    return d;
+  };
   const total = () => {
-    const d = read(); let n = 0, all = 0, done = 0, req = 0;
+    const d = read(true); let n = 0, all = 0, done = 0, req = 0;
     f.fields.forEach(fl => {
       if (["section","tramo","datetime","endtime"].includes(fl.type)) return;
       if (fl.type==="total"){ $("#f_"+fl.id).value = String(fl.scope==="all" ? all : n); if (fl.scope!=="all") n = 0; return; }
@@ -229,13 +253,24 @@ function renderForm(){
     });
   });
   $("#app").querySelectorAll("[data-fill]").forEach(b => b.onclick = () => { const el = $("#f_"+b.dataset.fill); el.value = b.dataset.v; el.dispatchEvent(new Event("input")); });
-  const filled = (fl, v) => ["check","datetime","endtime","total","section","tramo"].includes(fl.type) ? true
+  const filled = (fl, v) => isNA(v) || ["check","datetime","endtime","total","section","tramo"].includes(fl.type) ? true
     : fl.type==="number" ? (v !== "" && !isNaN(parseFloat(String(v).replace(",", "."))))
     : (v !== "" && v !== undefined);
-  $("#app").querySelectorAll(".field").forEach(w => { const clear = () => { w.classList.remove("missing"); total(); }; w.addEventListener("input", clear); w.addEventListener("click", clear); });
-  total();
+  const applyNA = () => {
+    const d = read();
+    f.fields.forEach(fl => {
+      if (!fl.grp) return;
+      const t = naOf(fl, d), w = $("#w_"+fl.id), el = $("#f_"+fl.id);
+      w.classList.toggle("na", !!t); w.querySelector(".nalab").textContent = t;
+      if (fl.type==="choice") el.classList.toggle("na", !!t); else el.disabled = !!t;
+      if (t){ w.classList.remove("missing"); el.classList.remove("out"); const r = $("#r_"+fl.id); if (r) r.classList.remove("out"); }
+      else if (fl.type==="number") mark(fl);
+    });
+  };
+  $("#app").querySelectorAll(".field").forEach(w => { const clear = () => { w.classList.remove("missing"); total(); applyNA(); }; w.addEventListener("input", clear); w.addEventListener("click", clear); });
+  applyNA(); total();
   $("#send").onclick = () => {
-    total(); const d = read(); f.fields.filter(fl => fl.type==="endtime").forEach(fl => d[fl.id] = nowStr());
+    total(); const d = read(true); f.fields.filter(fl => fl.type==="endtime").forEach(fl => d[fl.id] = nowStr());
     const miss = f.fields.filter(fl => !fl.optional && !filled(fl, d[fl.id]));
     $("#app").querySelectorAll(".field").forEach(w => w.classList.remove("missing"));
     const box = $("#errmsg");
@@ -268,9 +303,9 @@ function makePdf(p, f, data, when){
       need(14); y += 2; doc.setFillColor(222,232,235); doc.rect(L, y-4.5, W, 6.5, "F");
       doc.setTextColor(0); doc.setFont("helvetica","bold"); doc.setFontSize(10); doc.text(fl.label, L+1.5, y); y += 7; return;
     }
-    const raw = data[fl.id], bad = isBad(fl, raw);
+    const raw = data[fl.id], bad = isBad(fl, raw), na = isNA(raw);
     let val = fl.type==="check" ? (raw ? "Sí" : "No") : (raw || "—");
-    if (fl.type==="number" && raw) val += (fl.unit ? " " + fl.unit : "");
+    if (fl.type==="number" && raw && !na) val += (fl.unit ? " " + fl.unit : "");
     if (bad && fl.type==="number") val += "  (FUERA DE RANGO)";
     if (bad && fl.type==="choice") val += "  (!)";
     doc.setTextColor(0);
@@ -285,7 +320,7 @@ function makePdf(p, f, data, when){
     const ll = doc.splitTextToSize(fl.label + (fl.unit && fl.type!=="number" ? "" : ""), 108);
     need(ll.length*4.6 + 2);
     doc.text(ll, L+1.5, y);
-    doc.setFont("helvetica","bold"); if (bad) doc.setTextColor(200,0,0);
+    if (na){ doc.setFont("helvetica","italic"); doc.setTextColor(110); } else { doc.setFont("helvetica","bold"); if (bad) doc.setTextColor(200,0,0); }
     doc.text(String(val), VX, y); doc.setTextColor(0);
     y += Math.max(ll.length*4.6, 5) + 1.2;
   });
@@ -299,9 +334,10 @@ function submit(p, formId, f, data, dk){
   let pdf;
   try { pdf = makePdf(p, f, data, when); } catch(e){ alert("No se pudo crear el PDF: " + e.message); return; }
   const q = load("queue", []);
+  const prevQ = q.slice();
   q.push({id, plantName:p.name, formTitle:f.title, filename:`${p.name}_${f.title}_${stamp}.pdf`.replace(/[\\/:*?"<>|]/g,"-"), pdf, plant:p.id, form:formId, ts:when.getTime(), data});
-  save("queue", q);
-  const hist = load("hist", []); hist.push({id, plant:p.id, form:formId, ts:when.getTime(), data}); save("hist", hist.slice(-400));
+  if (!save("queue", q)){ alert("No hay espacio en el móvil para guardar este PDF. Sincroniza con cobertura los pendientes y vuelve a intentarlo. NO se ha borrado nada de lo rellenado."); return; }
+  const hist = load("hist", []); hist.push({id, plant:p.id, form:formId, ts:when.getTime(), data}); save("hist", pruneHist(hist));
   localStorage.removeItem(dk);
   go({name:"plant", plant:p.id});
   status(); flush();
@@ -325,7 +361,7 @@ async function flush(){
     if (j.ok){
       const have = new Set(load("hist", []).map(h => h.id));
       const merged = load("hist", []).concat(j.entries.filter(e => !have.has(e.id)));
-      save("hist", merged.sort((a,b)=>a.ts-b.ts).slice(-400));
+      save("hist", pruneHist(merged));
     }
   } catch(e){ console.warn("Sincronización pendiente:", e.message); }
   syncing = false; status();
