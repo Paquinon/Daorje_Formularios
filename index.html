@@ -120,7 +120,7 @@ function buildForm(rows){
       if (g && code !== "0009"){ o.grp = g; if (o.type==="number" && PARO_RE.test(r[1])) o.pk = true; }
       if (code === "0009" && k === "C"){
         const m = r[1].match(/^GRUPO (\d)\b/);
-        if (m){ if (r[2]==="Servicio") ctl["d"+m[1]] = id; if (r[2]==="Marcha") ctl["p"+m[1]] = id; }
+        if (m){ if (r[2]==="Servicio") ctl["d"+m[1]] = id; if (r[2]==="Marcha"){ ctl["p"+m[1]] = id; o.grp = +m[1]; } }  // Marcha/Paro se bloquea si el grupo está en Descargo
       }
     }
   });
