@@ -140,25 +140,30 @@ const RAW_T = (typeof TCHECK_RAW !== "undefined") ? TCHECK_RAW : {};
 const SEVER = ["Sin anomalía","Leve","Moderada","Grave"];
 // Subapartados que pertenecen al grupo (se bloquean si el grupo está en Revisión):
 const GROUP_SUB = /GRUPO|GENERATRIZ|REG\. TURBINA|VIBRA TURB|ALTERNADOR|EXCITACI|MANDO Y SEÑALIZ|POSTERIOR M y S/;
+// Número de grupo que cita un texto (G1, G 2, Gº 3, GRUPO 1...). 0 = ninguno.
+const GRP_RE = /\bG ?([1-9])\b|\bGº ?([1-9])\b|GRUPO ([1-9])(?!\d)/;
+const grpIn = s => { const m = GRP_RE.exec(s); return m ? +(m[1] || m[2] || m[3]) : 0; };
 function buildT(rows){
   const out = [{id:"fecha",label:"Fecha y hora de inicio",type:"datetime"},{id:"hora_fin",label:"Hora final",type:"endtime"}];
-  const ctl = {}; let sg = 0;
-  const two = rows.some(r => r[0]==="P" && /^GRUPO 2(?!\d)/.test(r[2]));      // central con dos grupos
-  const labG = s => { const m = /\bG([12])\b|\bTURBINA ([12])\b/.exec(s); return m ? +(m[1] || m[2]) : 0; };
+  const ctl = {}, seen = {}; let sg = 0, chg = 0;
+  const multi = rows.some(r => r[0]==="P" && /^GRUPO [2-9](?!\d)/.test(r[2]));      // central con varios grupos
+  const labG = s => grpIn(s) || +((/\bTURBINA ([12])\b/.exec(s) || [])[1]) || 0;
   rows.forEach(r => {
     const k = r[0], code = r[1], cid = code.replace(/\./g, "_");
-    if (k==="C"){ sg = 0; out.push({id:"h"+cid, type:"tramo", label:"CAPÍTULO "+code+" · "+r[2]}); }
+    if (k==="C"){ chg = multi ? grpIn(r[2]) : 0; sg = chg; out.push({id:"h"+cid, type:"tramo", label:"CAPÍTULO "+code+" · "+r[2]}); }
     else if (k==="S" || k==="I"){
-      if (k==="S") sg = two ? (+((/\bG([12])\b/.exec(r[2]) || [])[1]) || 0) : (GROUP_SUB.test(r[2]) ? 1 : 0);
+      if (k==="S") sg = multi ? (grpIn(r[2]) || chg) : (GROUP_SUB.test(r[2]) ? 1 : 0);
       out.push({id:"h"+cid, type:"section", label:code+" · "+r[2]});
     }
     else if (k==="P"){
-      const id = "p"+cid, d = r[2]; let o, g = sg || (two ? labG(d) : 0);
-      const mc = /^GRUPO(?: (\d))?[_ ]?\s*(SERV|MARCHA)/.exec(d), m = /^SIN ANOMALÍA (CONTENCIÓN_\w+),LEVE,MODERADA_GRAVE$/.exec(d);
+      const id = "p"+cid, d = r[2]; let o, g = sg || (multi ? labG(d) : 0);
+      const mc = /^GRUPO(?: (\d))?(?:[_ ]\s*(SERV|MARCHA)\S*.*)?$/.exec(d), m = /^SIN ANOMALÍA (CONTENCIÓN_\w+),LEVE,MODERADA_GRAVE$/.exec(d);
       if (mc){
-        const n = +(mc[1] || 1);
-        if (mc[2]==="SERV"){ o = {id, label:d, type:"choice", options:["Servicio","Revisión"], bad:[]}; ctl["d"+n] = id; g = 0; }
-        else { o = {id, label:d, type:"choice", options:["Marcha","Paro"], bad:[]}; ctl["p"+n] = id; g = n; }
+        const n = +(mc[1] || 1); let kind = mc[2];
+        if (!kind){ seen[n] = (seen[n] || 0) + 1; kind = seen[n] === 1 ? "SERV" : "MARCHA"; }   // "GRUPO n" a secas: 1º Servicio/Revisión, 2º Marcha/Paro
+        const bare = !mc[2];
+        if (kind==="SERV"){ o = {id, label:d + (bare ? " (Servicio / Revisión)" : ""), type:"choice", options:["Servicio","Revisión"], bad:[]}; ctl["d"+n] = id; g = 0; }
+        else { o = {id, label:d + (bare ? " (Marcha / Paro)" : ""), type:"choice", options:["Marcha","Paro"], bad:[]}; ctl["p"+n] = id; g = n; }
       }
       else if (m) o = {id, label:"ANOMALÍA "+m[1].replace("_"," "), type:"choice", options:SEVER, bad:SEVER.slice(1), comment:true};
       else o = {id, label:d, type:"choice", options: r[3]==="ok2" ? ["Ok","No Ok"] : ["Ok","No Ok","No aplica"], bad:["No Ok"], comment:true};
@@ -166,9 +171,9 @@ function buildT(rows){
       out.push(o);
     }
     else if (k==="N"){
-      const g = sg || (two ? labG(r[2]) : 0);
+      const g = sg || (multi ? labG(r[2]) : 0);
       const o = {id:"p"+cid, label:r[2], type:"number", unit:r[3] || undefined, min:r[4], max:r[5], history:true};
-      if (g){ o.grp = g; if (PARO_RE.test(r[2])) o.pk = true; }
+      if (g){ o.grp = g; if (PARO_RE.test(r[2]) && !/TRAFO/.test(r[2])) o.pk = true; }
       out.push(o);
     }
   });
@@ -195,7 +200,7 @@ Object.keys(RAW_T).forEach(k => { FORMS[k] = { title: /_sol$/.test(k) ? "SOL" : 
 const PLANTS = [
   {id:"central_1", name:"CH SALLENT",   forms:["sivi_a","sivi_b","sivi_c"]},
   {id:"central_2", name:"CH BAÑOS",     forms:["banos_a","banos_b","banos_c","banos_sol"]},
-  {id:"central_3", name:"CH LA SARRA",  forms:["sivi_a","sivi_b","sivi_c"]},
+  {id:"central_3", name:"CH LA SARRA",  forms:["sarra_a","sarra_b","sarra_c","sarra_sol"]},
   {id:"central_4", name:"CH BIESCAS I", forms:["biescas_a","biescas_b","biescas_c","biescas_sol"]},
   {id:"central_5", name:"CH SESUE",     forms:["sesue_a","sesue_b","sesue_c","sesue_d"]}
 ];
