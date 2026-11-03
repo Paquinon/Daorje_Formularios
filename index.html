@@ -50,6 +50,10 @@ input.out{border-color:#C62828;background:#FDE7E7;color:#7A0000;font-weight:700}
 .field.na{opacity:.55}
 .field.na .nalab{display:block}
 .seg.na{pointer-events:none;opacity:.6}
+.seg{flex-wrap:wrap}
+.seg button{min-width:88px}
+.cmw{margin-top:8px}
+.cmw textarea{min-height:64px}
 .sec{font-size:15px;margin:28px 0 14px;padding:8px 10px;background:var(--line);border-radius:4px;letter-spacing:.3px}
 .primary{width:100%;background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:16px;font-size:18px;font-weight:700;min-height:56px}
 .bar{position:fixed;left:0;right:0;bottom:0;padding:10px 16px;background:var(--card);border-top:1px solid var(--line);font-size:15px;display:flex;justify-content:space-between;gap:10px;align-items:center}
@@ -65,6 +69,7 @@ input.out{border-color:#C62828;background:#FDE7E7;color:#7A0000;font-weight:700}
 <div class="bar"><span id="status"></span><button id="sync">Sincronizar</button></div>
 <script src="jspdf.min.js"></script>
 <script src="sivi-data.js"></script>
+<script src="tcheck-data.js"></script>
 <script>
 /* ============ CONFIGURACIÓN ============ */
 const CONFIG = {
@@ -130,6 +135,40 @@ function buildForm(rows){
   return out;
 }
 
+// ---------- Formularios T-Check (Baños y siguientes): se generan desde tcheck-data.js ----------
+const RAW_T = (typeof TCHECK_RAW !== "undefined") ? TCHECK_RAW : {};
+const SEVER = ["Sin anomalía","Leve","Moderada","Grave"];
+// Subapartados que pertenecen al grupo (se bloquean si el grupo está en Revisión):
+const GROUP_SUB = /GRUPO|GENERATRIZ|REG\. TURBINA|VIBRA TURB|ALTERNADOR|EXCITACI|MANDO Y SEÑALIZ|POSTERIOR M y S/;
+function buildT(rows){
+  const out = [{id:"fecha",label:"Fecha y hora de inicio",type:"datetime"},{id:"hora_fin",label:"Hora final",type:"endtime"}];
+  const ctl = {}; let sg = 0;
+  rows.forEach(r => {
+    const k = r[0], code = r[1], cid = code.replace(/\./g, "_");
+    if (k==="C"){ sg = 0; out.push({id:"h"+cid, type:"tramo", label:"CAPÍTULO "+code+" · "+r[2]}); }
+    else if (k==="S" || k==="I"){ if (k==="S") sg = GROUP_SUB.test(r[2]) ? 1 : 0; out.push({id:"h"+cid, type:"section", label:code+" · "+r[2]}); }
+    else if (k==="P"){
+      const id = "p"+cid, d = r[2]; let o, isD = false;
+      const m = /^SIN ANOMALÍA (CONTENCIÓN_\w+),LEVE,MODERADA_GRAVE$/.exec(d);
+      if (/^GRUPO SERV/.test(d)){ o = {id, label:d, type:"choice", options:["Servicio","Revisión"], bad:[]}; ctl.d1 = id; isD = true; }
+      else if (/^GRUPO MARCHA/.test(d)){ o = {id, label:d, type:"choice", options:["Marcha","Paro"], bad:[]}; ctl.p1 = id; }
+      else if (m) o = {id, label:"ANOMALÍA "+m[1].replace("_"," "), type:"choice", options:SEVER, bad:SEVER.slice(1), comment:true};
+      else o = {id, label:d, type:"choice", options: r[3]==="ok2" ? ["Ok","No Ok"] : ["Ok","No Ok","No aplica"], bad:["No Ok"], comment:true};
+      if (sg && !isD) o.grp = 1;
+      out.push(o);
+    }
+    else if (k==="N"){
+      const o = {id:"p"+cid, label:r[2], type:"number", unit:r[3], min:r[4], max:r[5], history:true};
+      if (sg){ o.grp = 1; if (PARO_RE.test(r[2])) o.pk = true; }
+      out.push(o);
+    }
+  });
+  out.push({id:"realizado", label:"Realizado por", type:"text", history:true});
+  out.push({id:"x_all", type:"total", scope:"all", label:"Total anomalías"});
+  out.ctl = ctl;
+  return out;
+}
+
 const RAW = (typeof SIVI_RAW !== "undefined") ? SIVI_RAW : {};   // viene de sivi-data.js
 const FORMS = {
   sivi_a: { title: "SIVI A", fields: BASE },
@@ -140,11 +179,13 @@ const FORMS = {
   sesue_c: { title: "SIVI C", fields: buildForm(RAW.sesue_c || []) },
   sesue_d: { title: "SIVI D", fields: buildForm(RAW.sesue_d || []) }
 };
+// Formularios T-Check: banos_a, banos_b, banos_c, banos_sol... (el título sale del nombre)
+Object.keys(RAW_T).forEach(k => { FORMS[k] = { title: /_sol$/.test(k) ? "SOL" : "SIVI " + k.slice(-1).toUpperCase(), fields: buildT(RAW_T[k]) }; });
 
 // Centrales: cada una indica qué formularios tiene (por su identificador de FORMS).
 const PLANTS = [
   {id:"central_1", name:"CH SALLENT",   forms:["sivi_a","sivi_b","sivi_c"]},
-  {id:"central_2", name:"CH BAÑOS",     forms:["sivi_a","sivi_b","sivi_c"]},
+  {id:"central_2", name:"CH BAÑOS",     forms:["banos_a","banos_b","banos_c","banos_sol"]},
   {id:"central_3", name:"CH LA SARRA",  forms:["sivi_a","sivi_b","sivi_c"]},
   {id:"central_4", name:"CH BIESCAS I", forms:["sivi_a","sivi_b","sivi_c"]},
   {id:"central_5", name:"CH SESUE",     forms:["sesue_a","sesue_b","sesue_c","sesue_d"]}
@@ -167,7 +208,7 @@ function render(){
   back.hidden = view.name === "home";
   if (view.name === "home"){
     $("#title").textContent = "Centrales";
-    const miss = (typeof SIVI_RAW === "undefined") ? `<div class="msg errbox">Falta el archivo sivi-data.js junto a index.html. Los SIVI de CH SESUE no se pueden cargar.</div>` : "";
+    const miss = (typeof SIVI_RAW === "undefined" || typeof TCHECK_RAW === "undefined") ? `<div class="msg errbox">Faltan archivos de datos (sivi-data.js o tcheck-data.js) junto a index.html. Algunos formularios no se pueden cargar.</div>` : "";
     app.innerHTML = miss + PLANTS.map(p => `<button class="item" data-p="${p.id}">${esc(p.name)}<small>${p.forms.length} formularios</small></button>`).join("");
     app.querySelectorAll("[data-p]").forEach(b => b.onclick = () => go({name:"plant", plant:b.dataset.p}));
   } else if (view.name === "plant"){
@@ -204,7 +245,7 @@ function renderForm(){
     if (fl.type==="datetime") input = `<input id="f_${fl.id}" readonly value="${esc(v || nowStr())}">`;
     else if (fl.type==="endtime") input = `<input id="f_${fl.id}" readonly value="Se anota al enviar">`;
     else if (fl.type==="total") input = `<input id="f_${fl.id}" readonly value="0">`;
-    else if (fl.type==="choice") input = `<div class="seg" id="f_${fl.id}" data-v="${esc(v)}">${fl.options.map(o=>`<button type="button" data-o="${esc(o)}" class="${o===v?"on":""} ${o===v&&(fl.bad||[]).includes(o)?"bad":""}">${esc(o)}</button>`).join("")}</div>`;
+    else if (fl.type==="choice") input = `<div class="seg" id="f_${fl.id}" data-v="${esc(v)}">${fl.options.map(o=>`<button type="button" data-o="${esc(o)}" class="${o===v?"on":""} ${o===v&&(fl.bad||[]).includes(o)?"bad":""}">${esc(o)}</button>`).join("")}</div>${fl.comment ? `<div class="cmw" id="cw_${fl.id}" hidden><textarea id="c_${fl.id}" placeholder="Comentario (opcional)">${esc(draft[fl.id+"_c"] ?? "")}</textarea></div>` : ""}`;
     else if (fl.type==="check") { h += `<div class="field" id="w_${fl.id}"><label class="chk"><input type="checkbox" id="f_${fl.id}" ${v===true?"checked":""}>${esc(fl.label)}</label></div>`; return; }
     else if (fl.type==="textarea") input = `<textarea id="f_${fl.id}">${esc(v)}</textarea>`;
     else if (fl.type==="select") input = `<select id="f_${fl.id}"><option value="">Elegir…</option>${fl.options.map(o=>`<option ${o===v?"selected":""}>${esc(o)}</option>`).join("")}</select>`;
@@ -221,11 +262,12 @@ function renderForm(){
   $("#app").innerHTML = h;
 
   const ctl = f.fields.ctl || {};
-  const naOf = (fl, d) => !fl.grp ? "" : d[ctl["d"+fl.grp]]==="Descargo" ? "No aplica por descargo" : (fl.pk && d[ctl["p"+fl.grp]]==="Paro") ? "No aplica por paro" : "";
+  const naOf = (fl, d) => { if (!fl.grp) return ""; const dv = d[ctl["d"+fl.grp]]; if (dv==="Descargo" || dv==="Revisión") return "No aplica por " + dv.toLowerCase(); return (fl.pk && d[ctl["p"+fl.grp]]==="Paro") ? "No aplica por paro" : ""; };
   const read = final => {
     const d = {};
     f.fields.forEach(fl => { if (fl.type==="section" || fl.type==="tramo") return; const el = $("#f_"+fl.id); d[fl.id] = fl.type==="check" ? el.checked : fl.type==="choice" ? el.dataset.v : fl.type==="endtime" ? "" : el.value.trim(); });
     if (final) f.fields.forEach(fl => { const t = naOf(fl, d); if (t) d[fl.id] = t; });
+    f.fields.forEach(fl => { if (!fl.comment) return; const c = $("#c_"+fl.id); if (!c || !c.value.trim()) return; if (final && !isBad(fl, d[fl.id])) return; d[fl.id+"_c"] = c.value.trim(); });
     return d;
   };
   const total = () => {
@@ -258,6 +300,7 @@ function renderForm(){
     : (v !== "" && v !== undefined);
   const applyNA = () => {
     const d = read();
+    f.fields.forEach(fl => { if (!fl.comment) return; const w = $("#cw_"+fl.id); if (w) w.hidden = !(fl.bad||[]).includes($("#f_"+fl.id).dataset.v) || !!naOf(fl, d); });
     f.fields.forEach(fl => {
       if (!fl.grp) return;
       const t = naOf(fl, d), w = $("#w_"+fl.id), el = $("#f_"+fl.id);
@@ -323,6 +366,8 @@ function makePdf(p, f, data, when){
     if (na){ doc.setFont("helvetica","italic"); doc.setTextColor(110); } else { doc.setFont("helvetica","bold"); if (bad) doc.setTextColor(200,0,0); }
     doc.text(String(val), VX, y); doc.setTextColor(0);
     y += Math.max(ll.length*4.6, 5) + 1.2;
+    const cm = data[fl.id+"_c"];
+    if (cm){ const cl = doc.splitTextToSize("Comentario: "+cm, W-10); need(cl.length*4.4+2); doc.setFont("helvetica","italic"); doc.setFontSize(9); doc.setTextColor(60); doc.text(cl, L+6, y); y += cl.length*4.4+1.5; doc.setTextColor(0); }
   });
   return doc.output("datauristring").split(",")[1];
 }
