@@ -54,6 +54,7 @@ input.out{border-color:#C62828;background:#FDE7E7;color:#7A0000;font-weight:700}
 .seg button{min-width:88px}
 .cmw{margin-top:8px}
 .cmw textarea{min-height:64px}
+.ver{margin-top:24px;font-size:13px;color:var(--mute);text-align:center}
 .sec{font-size:15px;margin:28px 0 14px;padding:8px 10px;background:var(--line);border-radius:4px;letter-spacing:.3px}
 .primary{width:100%;background:var(--acc);color:var(--acc-ink);border:0;border-radius:6px;padding:16px;font-size:18px;font-weight:700;min-height:56px}
 .bar{position:fixed;left:0;right:0;bottom:0;padding:10px 16px;background:var(--card);border-top:1px solid var(--line);font-size:15px;display:flex;justify-content:space-between;gap:10px;align-items:center}
@@ -68,8 +69,8 @@ input.out{border-color:#C62828;background:#FDE7E7;color:#7A0000;font-weight:700}
 <main id="app"></main>
 <div class="bar"><span id="status"></span><button id="sync">Sincronizar</button></div>
 <script src="jspdf.min.js"></script>
-<script src="sivi-data.js"></script>
-<script src="tcheck-data.js"></script>
+<script src="sivi-data.js?v=4"></script>
+<script src="tcheck-data.js?v=4"></script>
 <script>
 /* ============ CONFIGURACIÓN ============ */
 const CONFIG = {
@@ -136,13 +137,14 @@ function buildForm(rows){
 }
 
 // ---------- Formularios T-Check (Baños y siguientes): se generan desde tcheck-data.js ----------
+const APP_VERSION = "4";
 const RAW_T = (typeof TCHECK_RAW !== "undefined") ? TCHECK_RAW : {};
 const SEVER = ["Sin anomalía","Leve","Moderada","Grave"];
 // Subapartados que pertenecen al grupo (se bloquean si el grupo está en Revisión):
 const GROUP_SUB = /GRUPO|GENERATRIZ|REG\. TURBINA|VIBRA TURB|ALTERNADOR|EXCITACI|MANDO Y SEÑALIZ|POSTERIOR M y S/;
 // Número de grupo que cita un texto (G1, G 2, Gº 3, GRUPO 1...). 0 = ninguno.
 const GRP_RE = /\bG ?([1-9])\b|\bGº ?([1-9])\b|GRUPO ([1-9])(?!\d)/;
-const grpIn = s => { const m = GRP_RE.exec(s); return m ? +(m[1] || m[2] || m[3]) : 0; };
+const grpIn = (s, noName) => { const m = GRP_RE.exec(s); return m ? +(m[1] || m[2] || m[3]) : (!noName && /\bESCARRA\b/.test(s) ? 1 : 0); };   // Escarra = grupo 1
 function buildT(rows){
   const out = [{id:"fecha",label:"Fecha y hora de inicio",type:"datetime"},{id:"hora_fin",label:"Hora final",type:"endtime"}];
   const ctl = {}, seen = {}; let sg = 0, chg = 0;
@@ -150,16 +152,16 @@ function buildT(rows){
   const labG = s => grpIn(s) || +((/\bTURBINA ([12])\b/.exec(s) || [])[1]) || 0;
   rows.forEach(r => {
     const k = r[0], code = r[1], cid = code.replace(/\./g, "_");
-    if (k==="C"){ chg = multi ? grpIn(r[2]) : 0; sg = chg; out.push({id:"h"+cid, type:"tramo", label:"CAPÍTULO "+code+" · "+r[2]}); }
+    if (k==="C"){ chg = multi ? grpIn(r[2], true) : 0; sg = chg; out.push({id:"h"+cid, type:"tramo", label:"CAPÍTULO "+code+" · "+r[2]}); }
     else if (k==="S" || k==="I"){
       if (k==="S") sg = multi ? (grpIn(r[2]) || chg) : (GROUP_SUB.test(r[2]) ? 1 : 0);
       out.push({id:"h"+cid, type:"section", label:code+" · "+r[2]});
     }
     else if (k==="P"){
       const id = "p"+cid, d = r[2]; let o, g = sg || (multi ? labG(d) : 0);
-      const mc = /^GRUPO(?: (\d))?(?:[_ ]\s*(SERV|MARCHA)\S*.*)?$/.exec(d), m = /^SIN ANOMALÍA (CONTENCIÓN_\w+),LEVE,MODERADA_GRAVE$/.exec(d);
+      const mc = /^GRUPO(?: (\d))?(?: [A-ZÁÉÍÓÚÑ]+)?[_ ]\s*(SERV|MARCHA)/.exec(d) || /^GRUPO (\d)$/.exec(d), m = /^(?:SIN )?ANOMALÍA (CONTENCIÓN_\w+),LEVE,MODERADA_GRAVE\??$/.exec(d);
       if (mc){
-        const n = +(mc[1] || 1); let kind = mc[2];
+        const n = sg || +(mc[1] || 1); let kind = mc[2];
         if (!kind){ seen[n] = (seen[n] || 0) + 1; kind = seen[n] === 1 ? "SERV" : "MARCHA"; }   // "GRUPO n" a secas: 1º Servicio/Revisión, 2º Marcha/Paro
         const bare = !mc[2];
         if (kind==="SERV"){ o = {id, label:d + (bare ? " (Servicio / Revisión)" : ""), type:"choice", options:["Servicio","Revisión"], bad:[]}; ctl["d"+n] = id; g = 0; }
@@ -198,7 +200,7 @@ Object.keys(RAW_T).forEach(k => { FORMS[k] = { title: /_sol$/.test(k) ? "SOL" : 
 
 // Centrales: cada una indica qué formularios tiene (por su identificador de FORMS).
 const PLANTS = [
-  {id:"central_1", name:"CH SALLENT",   forms:["sivi_a","sivi_b","sivi_c"]},
+  {id:"central_1", name:"CH SALLENT",   forms:["sallent_a","sallent_b","sallent_c","sallent_sol"]},
   {id:"central_2", name:"CH BAÑOS",     forms:["banos_a","banos_b","banos_c","banos_sol"]},
   {id:"central_3", name:"CH LA SARRA",  forms:["sarra_a","sarra_b","sarra_c","sarra_sol"]},
   {id:"central_4", name:"CH BIESCAS I", forms:["biescas_a","biescas_b","biescas_c","biescas_sol"]},
@@ -223,12 +225,13 @@ function render(){
   if (view.name === "home"){
     $("#title").textContent = "Centrales";
     const miss = (typeof SIVI_RAW === "undefined" || typeof TCHECK_RAW === "undefined") ? `<div class="msg errbox">Faltan archivos de datos (sivi-data.js o tcheck-data.js) junto a index.html. Algunos formularios no se pueden cargar.</div>` : "";
-    app.innerHTML = miss + PLANTS.map(p => `<button class="item" data-p="${p.id}">${esc(p.name)}<small>${p.forms.length} formularios</small></button>`).join("");
+    app.innerHTML = miss + PLANTS.map(p => `<button class="item" data-p="${p.id}">${esc(p.name)}<small>${p.forms.length} formularios</small></button>`).join("") + `<div class="ver">Versión ${APP_VERSION} · formularios cargados: ${Object.keys(RAW_T).length} T-Check + ${Object.keys(RAW).length} SIVI de Sesue</div>`;
     app.querySelectorAll("[data-p]").forEach(b => b.onclick = () => go({name:"plant", plant:b.dataset.p}));
   } else if (view.name === "plant"){
     const p = PLANTS.find(x => x.id === view.plant);
     $("#title").textContent = p.name;
-    app.innerHTML = p.forms.map(f => `<button class="item" data-f="${f}">${esc(FORMS[f].title)}${load("draft:"+p.id+":"+f,null) ? "<small>Borrador guardado</small>" : ""}</button>`).join("");
+    const okF = p.forms.filter(f => FORMS[f]), lost = p.forms.length - okF.length;
+    app.innerHTML = (lost ? `<div class="msg errbox">Faltan ${lost} formulario(s) de esta central. Suba la última versión de tcheck-data.js a GitHub y recargue la app con cobertura (versión actual: ${APP_VERSION}).</div>` : "") + okF.map(f => `<button class="item" data-f="${f}">${esc(FORMS[f].title)}${load("draft:"+p.id+":"+f,null) ? "<small>Borrador guardado</small>" : ""}</button>`).join("");
     app.querySelectorAll("[data-f]").forEach(b => b.onclick = () => go({name:"form", plant:p.id, form:b.dataset.f}));
   } else renderForm();
 }
