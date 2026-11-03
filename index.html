@@ -143,23 +143,32 @@ const GROUP_SUB = /GRUPO|GENERATRIZ|REG\. TURBINA|VIBRA TURB|ALTERNADOR|EXCITACI
 function buildT(rows){
   const out = [{id:"fecha",label:"Fecha y hora de inicio",type:"datetime"},{id:"hora_fin",label:"Hora final",type:"endtime"}];
   const ctl = {}; let sg = 0;
+  const two = rows.some(r => r[0]==="P" && /^GRUPO 2(?!\d)/.test(r[2]));      // central con dos grupos
+  const labG = s => { const m = /\bG([12])\b|\bTURBINA ([12])\b/.exec(s); return m ? +(m[1] || m[2]) : 0; };
   rows.forEach(r => {
     const k = r[0], code = r[1], cid = code.replace(/\./g, "_");
     if (k==="C"){ sg = 0; out.push({id:"h"+cid, type:"tramo", label:"CAPÍTULO "+code+" · "+r[2]}); }
-    else if (k==="S" || k==="I"){ if (k==="S") sg = GROUP_SUB.test(r[2]) ? 1 : 0; out.push({id:"h"+cid, type:"section", label:code+" · "+r[2]}); }
+    else if (k==="S" || k==="I"){
+      if (k==="S") sg = two ? (+((/\bG([12])\b/.exec(r[2]) || [])[1]) || 0) : (GROUP_SUB.test(r[2]) ? 1 : 0);
+      out.push({id:"h"+cid, type:"section", label:code+" · "+r[2]});
+    }
     else if (k==="P"){
-      const id = "p"+cid, d = r[2]; let o, isD = false;
-      const m = /^SIN ANOMALÍA (CONTENCIÓN_\w+),LEVE,MODERADA_GRAVE$/.exec(d);
-      if (/^GRUPO SERV/.test(d)){ o = {id, label:d, type:"choice", options:["Servicio","Revisión"], bad:[]}; ctl.d1 = id; isD = true; }
-      else if (/^GRUPO MARCHA/.test(d)){ o = {id, label:d, type:"choice", options:["Marcha","Paro"], bad:[]}; ctl.p1 = id; }
+      const id = "p"+cid, d = r[2]; let o, g = sg || (two ? labG(d) : 0);
+      const mc = /^GRUPO(?: (\d))?[_ ]?\s*(SERV|MARCHA)/.exec(d), m = /^SIN ANOMALÍA (CONTENCIÓN_\w+),LEVE,MODERADA_GRAVE$/.exec(d);
+      if (mc){
+        const n = +(mc[1] || 1);
+        if (mc[2]==="SERV"){ o = {id, label:d, type:"choice", options:["Servicio","Revisión"], bad:[]}; ctl["d"+n] = id; g = 0; }
+        else { o = {id, label:d, type:"choice", options:["Marcha","Paro"], bad:[]}; ctl["p"+n] = id; g = n; }
+      }
       else if (m) o = {id, label:"ANOMALÍA "+m[1].replace("_"," "), type:"choice", options:SEVER, bad:SEVER.slice(1), comment:true};
       else o = {id, label:d, type:"choice", options: r[3]==="ok2" ? ["Ok","No Ok"] : ["Ok","No Ok","No aplica"], bad:["No Ok"], comment:true};
-      if (sg && !isD) o.grp = 1;
+      if (g) o.grp = g;
       out.push(o);
     }
     else if (k==="N"){
-      const o = {id:"p"+cid, label:r[2], type:"number", unit:r[3], min:r[4], max:r[5], history:true};
-      if (sg){ o.grp = 1; if (PARO_RE.test(r[2])) o.pk = true; }
+      const g = sg || (two ? labG(r[2]) : 0);
+      const o = {id:"p"+cid, label:r[2], type:"number", unit:r[3] || undefined, min:r[4], max:r[5], history:true};
+      if (g){ o.grp = g; if (PARO_RE.test(r[2])) o.pk = true; }
       out.push(o);
     }
   });
@@ -187,7 +196,7 @@ const PLANTS = [
   {id:"central_1", name:"CH SALLENT",   forms:["sivi_a","sivi_b","sivi_c"]},
   {id:"central_2", name:"CH BAÑOS",     forms:["banos_a","banos_b","banos_c","banos_sol"]},
   {id:"central_3", name:"CH LA SARRA",  forms:["sivi_a","sivi_b","sivi_c"]},
-  {id:"central_4", name:"CH BIESCAS I", forms:["sivi_a","sivi_b","sivi_c"]},
+  {id:"central_4", name:"CH BIESCAS I", forms:["biescas_a","biescas_b","biescas_c","biescas_sol"]},
   {id:"central_5", name:"CH SESUE",     forms:["sesue_a","sesue_b","sesue_c","sesue_d"]}
 ];
 /* ====================================================== */
