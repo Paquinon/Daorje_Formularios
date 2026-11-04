@@ -69,8 +69,7 @@ input.out{border-color:#C62828;background:#FDE7E7;color:#7A0000;font-weight:700}
 <main id="app"></main>
 <div class="bar"><span id="status"></span><button id="sync">Sincronizar</button></div>
 <script src="jspdf.min.js"></script>
-<script src="sivi-data.js?v=4"></script>
-<script src="tcheck-data.js?v=4"></script>
+<script src="tcheck-data.js?v=5"></script>
 <script>
 /* ============ CONFIGURACIÓN ============ */
 const CONFIG = {
@@ -89,55 +88,11 @@ const CONFIG = {
 //  total    : cuenta sola las anomalías (opciones malas + valores fuera de rango)
 // Todos los campos son OBLIGATORIOS salvo los que lleven optional:true
 // "history:true" muestra lo respondido en entregas anteriores.
-const BASE = [
-  {id:"fecha", label:"Fecha y hora", type:"datetime"},
-  {id:"grupo", label:"Estado del grupo", type:"choice", options:["Servicio","Paro"]},
-  {id:"general", label:"Estado general", type:"choice", options:["Correcto","Incorrecto"], bad:["Incorrecto"]},
-  {id:"temp_coj", label:"Temperatura cojinete", unit:"°C", type:"number", min:20, max:65, history:true},
-  {id:"nivel_aceite", label:"Nivel de aceite", unit:"%", type:"number", min:40, max:80, history:true},
-  {id:"presion", label:"Presión de agua", unit:"bar", type:"number", min:2, max:6, history:true},
-  {id:"obs", label:"Observaciones", type:"textarea", optional:true}
-];
-// ---------- SIVI de CH SESUE: se generan desde sivi-data.js ----------
-// En cada pregunta de opciones, la 2ª opción es la anomalía (como en el papel),
-// salvo estos pares, que son estados normales de la planta y no cuentan:
-const NEUTRAL = ["Servicio|Descargo","Marcha|Paro","Automatico|Manual"];
-// Bloqueo por grupo: Descargo bloquea todo lo del grupo; Paro bloquea temperaturas, potencias y vibraciones.
-const grpOf = s => /DG1|PG1|\bGR(?:UPO)? ?1\b/.test(s) ? 1 : /DG2|PG2|\bGR(?:UPO)? ?2\b/.test(s) ? 2 : 0;
+// Al marcar un grupo en Paro se bloquean sus lecturas de temperatura, potencia y vibración:
 const PARO_RE = /TEMP|POTENCIA|VIBRAC|^COJ|AP DISTRIBUIDOR/;
-const unitOf = l => /TEMP/.test(l) ? "°C" : /TENSION/.test(l) ? "V" : /FRECUENCIA/.test(l) ? "Hz" : /HORAS/.test(l) ? "h" : undefined;
-function buildForm(rows){
-  const out = [{id:"fecha",label:"Fecha y hora de inicio",type:"datetime"},{id:"hora_fin",label:"Hora final",type:"endtime"}];
-  let tr = 0, code = "", n = 0, trLabel = "", sg = 0; const ctl = {};
-  rows.forEach(r => {
-    const k = r[0];
-    if (k==="T"){ tr++; code = ""; trLabel = r[1]; out.push({id:"t"+tr, type:"tramo", label:"TRAMO "+r[1]}); }
-    else if (k==="S"){ code = r[1]; n = 0; { const bm = /BARRAS 11 KV G ?([12])/.exec(r[2]); sg = grpOf(r[2]) || (bm ? +bm[1] : 0); } out.push({id:`t${tr}s${code}`, type:"section", label:r[1]+" · "+r[2]}); }
-    else if (k==="X"){ out.push({id:"x"+tr, type:"total", scope:"tramo", label:"Total anomalías · tramo "+trLabel.split(" (")[0]}); }
-    else {
-      n++; const id = `t${tr}_${code}_${n}`;
-      if (k==="K") out.push({id, label:r[1], type:"choice", options:["Correcto","Incorrecto"], bad:["Incorrecto"]});
-      else if (k==="A") out.push({id, label:r[1], type:"choice", options:["No","Si"], bad:["Si"]});
-      else if (k==="C"){
-        const neutral = NEUTRAL.includes(r[2]+"|"+r[3]);
-        out.push({id, label:r[1], type:"choice", options:[r[2],r[3]], bad: neutral ? [] : (/FALTA/.test(r[1]) ? ["Si"] : [r[3]])});
-      } else out.push({id, label:r[1], type:"number", unit:unitOf(r[1]), min:r[2], max:r[3], history:true});
-      const o = out[out.length-1], g = sg || grpOf(r[1]);
-      if (g && code !== "0009"){ o.grp = g; if (o.type==="number" && PARO_RE.test(r[1])) o.pk = true; }
-      if (code === "0009" && k === "C"){
-        const m = r[1].match(/^GRUPO (\d)\b/);
-        if (m){ if (r[2]==="Servicio") ctl["d"+m[1]] = id; if (r[2]==="Marcha"){ ctl["p"+m[1]] = id; o.grp = +m[1]; } }  // Marcha/Paro se bloquea si el grupo está en Descargo
-      }
-    }
-  });
-  out.ctl = ctl;
-  out.push({id:"realizado", label:"Realizado por", type:"text", history:true});
-  if (tr > 1) out.push({id:"x_all", type:"total", scope:"all", label:"Total anomalías (todos los tramos)"});
-  return out;
-}
 
 // ---------- Formularios T-Check (Baños y siguientes): se generan desde tcheck-data.js ----------
-const APP_VERSION = "4";
+const APP_VERSION = "5";
 const RAW_T = (typeof TCHECK_RAW !== "undefined") ? TCHECK_RAW : {};
 const SEVER = ["Sin anomalía","Leve","Moderada","Grave"];
 // Subapartados que pertenecen al grupo (se bloquean si el grupo está en Revisión):
@@ -185,16 +140,7 @@ function buildT(rows){
   return out;
 }
 
-const RAW = (typeof SIVI_RAW !== "undefined") ? SIVI_RAW : {};   // viene de sivi-data.js
-const FORMS = {
-  sivi_a: { title: "SIVI A", fields: BASE },
-  sivi_b: { title: "SIVI B", fields: BASE },
-  sivi_c: { title: "SIVI C", fields: BASE },
-  sesue_a: { title: "SIVI A", fields: buildForm(RAW.sesue_a || []) },
-  sesue_b: { title: "SIVI B", fields: buildForm(RAW.sesue_b || []) },
-  sesue_c: { title: "SIVI C", fields: buildForm(RAW.sesue_c || []) },
-  sesue_d: { title: "SIVI D", fields: buildForm(RAW.sesue_d || []) }
-};
+const FORMS = {};
 // Formularios T-Check: banos_a, banos_b, banos_c, banos_sol... (el título sale del nombre)
 Object.keys(RAW_T).forEach(k => { FORMS[k] = { title: /_sol$/.test(k) ? "SOL" : "SIVI " + k.slice(-1).toUpperCase(), fields: buildT(RAW_T[k]) }; });
 
@@ -204,7 +150,7 @@ const PLANTS = [
   {id:"central_2", name:"CH BAÑOS",     forms:["banos_a","banos_b","banos_c","banos_sol"]},
   {id:"central_3", name:"CH LA SARRA",  forms:["sarra_a","sarra_b","sarra_c","sarra_sol"]},
   {id:"central_4", name:"CH BIESCAS I", forms:["biescas_a","biescas_b","biescas_c","biescas_sol"]},
-  {id:"central_5", name:"CH SESUE",     forms:["sesue_a","sesue_b","sesue_c","sesue_d"]}
+  {id:"central_5", name:"CH SESUE",     forms:["sesue_a","sesue_b","sesue_c","sesue_sol"]}
 ];
 /* ====================================================== */
 
@@ -224,8 +170,8 @@ function render(){
   back.hidden = view.name === "home";
   if (view.name === "home"){
     $("#title").textContent = "Centrales";
-    const miss = (typeof SIVI_RAW === "undefined" || typeof TCHECK_RAW === "undefined") ? `<div class="msg errbox">Faltan archivos de datos (sivi-data.js o tcheck-data.js) junto a index.html. Algunos formularios no se pueden cargar.</div>` : "";
-    app.innerHTML = miss + PLANTS.map(p => `<button class="item" data-p="${p.id}">${esc(p.name)}<small>${p.forms.length} formularios</small></button>`).join("") + `<div class="ver">Versión ${APP_VERSION} · formularios cargados: ${Object.keys(RAW_T).length} T-Check + ${Object.keys(RAW).length} SIVI de Sesue</div>`;
+    const miss = (typeof TCHECK_RAW === "undefined") ? `<div class="msg errbox">Falta el archivo tcheck-data.js junto a index.html. Los formularios no se pueden cargar.</div>` : "";
+    app.innerHTML = miss + PLANTS.map(p => `<button class="item" data-p="${p.id}">${esc(p.name)}<small>${p.forms.length} formularios</small></button>`).join("") + `<div class="ver">Versión ${APP_VERSION} · formularios cargados: ${Object.keys(RAW_T).length}</div>`;
     app.querySelectorAll("[data-p]").forEach(b => b.onclick = () => go({name:"plant", plant:b.dataset.p}));
   } else if (view.name === "plant"){
     const p = PLANTS.find(x => x.id === view.plant);
